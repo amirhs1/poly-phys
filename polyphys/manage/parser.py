@@ -67,7 +67,8 @@ function is commonly used, ensuring robustness to varied filename patterns.
 """
 import os
 import re
-from typing import Dict, List, ClassVar, Optional
+from pathlib import Path
+from typing import ClassVar, Optional, Self
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from .utils import (
@@ -77,7 +78,7 @@ from .utils import (
     volume_fraction_cube,
     volume_fraction_cylinder
 )
-from .types import LineageT, TopologyT, GroupT, GeometryT
+from .types import LineageT, TopologyT, GroupT, GeometryT, Pathish
 
 
 class ParserBase(ABC):
@@ -88,70 +89,84 @@ class ParserBase(ABC):
 
     Parameters
     ----------
-    artifact : str
-        Artifact that is parsed for extracting information. Can be a filename
-        (with or wihout extention) or filepath.
+    artifact : Pathish
+        The artifact to be parsed. Must be a relative or absolute file path
+        (string or Path). The path may include or omit directories, but must
+        represent a valid file. Pure name tokens without extensions should
+        instead be passed via :meth:`from_name`.
     lineage : :py:data:`LineageT`
-        The lineage of the name, specifying the hierarchical level within the
-        project. Must be one of: ``'segment'``, ``'whole'``,
+        The lineage of the artifact, specifying the hierarchical level within
+        the project. Must be one of: ``'segment'``, ``'whole'``,
         ``'ensemble_long'``, ``'ensemble'``, or ``'space'``.
     group : :py:data:`GroupT`
         The particle group type in the project. Used for specific group-based
         parsing.
-    ispath : bool, optional
-        If True, interpret `artifact` as a full filepath; if False, interpret
-        it as a bare filename or name. Default is `False`.
+
+    Alternative Constructors
+    ------------------------
+    .. method:: from_name(name, lineage, group)
+       Construct a parser directly from a *name token* (not a path).
+       This bypasses filesystem resolution. Intended for cases where only
+       a lineage token is available, e.g., when working with metadata or
+       generated identifiers. In this mode, ``filepath`` and ``ext`` are
+       set to empty strings, and the given token is treated as both the
+       ``filename`` and ``name`` prior to :meth:`_find_name` normalization.
 
     Attributes
     ----------
     filepath : str
-        The filepath if `artifact` is a filepath, otherwise ``'N/A'``.
+        Absolute directory path if `artifact` is a file path, or ``""`` if
+        constructed via :meth:`from_name`.
     filename : str
-        The filename extracted from `artifact` if it is a filepath, otherwise
-        `artifact` itself.
-    group : {'bug', 'nucleoid', 'all'}
-        Particle group type in the project.
+        The filename extracted from `artifact`, or the provided token if
+        constructed via :meth:`from_name`.
     ext : str
-        The file extension if `artifact` was a filepath; otherwise 'N/A'.
+        The file extension (including the leading dot), or ``""`` if none
+        was available (e.g., from :meth:`from_name`).
     name : str
-        The unique name derived from `filename` based on `lineage` and `group`
-        conventions.
+        The unique name derived from `filename` based on `lineage` and
+        `group` conventions.
+    group : :py:data:`GroupT`
+        Particle group type in the project.
+    lineage : :py:data:`LineageT`
+        The lineage of the artifact, specifying the hierarchical level within
+        the project. Must be one of: ``'segment'``, ``'whole'``,
+        ``'ensemble_long'``, ``'ensemble'``, or ``'space'``.
     project_name : str
-        The name of the project class (subclass of `ParserBase`), automatically
-        assigned as the subclass's name.
-    lineage_genealogy: List[str]
-        List of parent lineages for an `artifact` with a given `lineage`.
-    lineage_attributes: List[str]
-        List of parsed/dynamically-defined attributes specific to an `artifact`
-        with a given `lineage`,
-    physical_attributes: List[str]
-        List of computed/system attributes specific to an `artifact` with a
-        given `lineage`, including computed attributes.
-    attributes: List[str]
-        List of attributes specific to an `artifact` with a given `lineage`,
-        including parsed and computed attributes.
+        The name of the parser subclass (automatically assigned).
+    lineage_genealogy : list of :py:data:`LineageT`
+        List of parent lineages for the artifact’s `lineage`.
+    lineage_attributes : list of str
+        Parsed or dynamically defined attributes specific to the artifact’s
+        `lineage`.
+    physical_attributes : list of str
+        Computed or system attributes specific to the artifact’s `lineage`.
+    attributes : list of str
+        Union of lineage-specific and physical attributes for the artifact.
 
     Class Attributes
     ----------------
-    lineages : list of str
+    lineages : list of :py:data:`LineageT`
         List of valid lineage types.
-    genealogy : dict of lists
-        Dictionary defining the hierarchical relationship between lineages.
-        Each lineage points to its parent lineages in a hierarchy.
+    genealogy : dict of (:py:data:`LineageT` → list of :py:data:`LineageT`)
+        Dictionary defining the hierarchical relationships between lineages.
+        Each lineage points to its parent lineages in the hierarchy.
 
     Abstract Class Properties
     -------------------------
-    geometry : str
-        Specifies geometry of the system
-    topology : str
-        Specifies how particles are connected (how) or not in the system.
-    groups : List[str]
-        Specifies particle groups in the system
-    genealogy_attributes : Dict[str, OrderedDict[str, str]]
-        Dictionary defining lineage-specific attributes for each lineage type.
-    project_attributes : Dict[str, List[str]]
-        Dictionary defining project-level attributes that remain constant but
-        are not extractable from a filename.
+    geometry : :py:data:`GeometryT`
+        Specifies the geometry of the system.
+    topology : :py:data:`TopologyT`
+        Specifies how particles are connected (or not) in the system.
+    groups : list of :py:data:`GroupT`
+        Allowed particle groups in the system.
+    genealogy_attributes : dict of (
+        :py:data:`LineageT` -> OrderedDict[str, str])
+        Mapping from lineage type to an OrderedDict of attribute names and
+        their short forms.
+    project_attributes : dict of (:py:data:`LineageT` -> list of str)
+        Mapping from lineage type to project-level attributes that remain
+        constant but are not extractable from filenames.
 
     Methods
     -------
@@ -168,9 +183,9 @@ class ParserBase(ABC):
         Compute physical attributes for the current lineage based on primary
         attributes. (Abstract method)
     """
-    _lineages: ClassVar[List[LineageT]] = \
+    _lineages: ClassVar[list[LineageT]] = \
         ['segment', 'whole', 'ensemble_long', 'ensemble', 'space']
-    _genealogy: ClassVar[Dict[LineageT, List[LineageT]]] = {
+    _genealogy: ClassVar[dict[LineageT, list[LineageT]]] = {
         'segment': ['segment', 'whole', 'ensemble_long', 'ensemble', 'space'],
         'whole': ['whole', 'ensemble_long', 'ensemble', 'space'],
         'ensemble_long': ['ensemble_long', 'ensemble', 'space'],
@@ -179,43 +194,41 @@ class ParserBase(ABC):
     }
     _geometry: ClassVar[Optional[GeometryT]] = None
     _topology: ClassVar[Optional[TopologyT]] = None
-    _groups: ClassVar[Optional[List[GroupT]]] = None
+    _groups: ClassVar[Optional[list[GroupT]]] = None
     _genealogy_attributes: \
-        ClassVar[Optional[Dict[LineageT, OrderedDict[str, str]]]] = None
-    _project_attributes: ClassVar[Optional[Dict[str, List[str]]]] = None
+        ClassVar[Optional[dict[LineageT, OrderedDict[str, str]]]] = None
+    _project_attributes: ClassVar[Optional[dict[LineageT, list[str]]]] = None
 
     def __init__(
         self,
-        artifact: str,
+        artifact: Pathish,
         lineage: LineageT,
-        group: GroupT,
-        ispath: bool = False
+        group: GroupT
     ) -> None:
-        if artifact == '':
+        artifact_str = os.fspath(artifact)
+        if artifact_str == '':
             raise ValueError("'artifact' cannot be an empty string.")
+
         invalid_keyword(lineage, self.lineages)
         invalid_keyword(group, self.groups)
-        self._filepath: str = ''
-        self._filename: str = ''
-        self._name: str = ''
-        self._ext: str = ''
-        self._ispath = ispath
-        self._lineage = lineage
-        self._group = group
+
+        # Normalize: expand env/~ and convert to absolute path
+        p = Path(
+            os.path.expandvars(os.path.expanduser(artifact_str))).resolve()
+
+        self._filepath: str = str(p.parent)  # absolute dir
+        self._filename: str = p.name         # e.g., '...bug.data' or '...bug'
+        self._name: str = p.stem             # filename without last suffix
+        self._ext: str = p.suffix            # e.g., '.data' or '' if none
+
         self._project_name = self.__class__.__name__
-        if self._ispath is True:
-            self._filename = os.path.basename(artifact)
-            self._filepath = os.path.dirname(os.path.abspath(artifact))
-            self._name, self._ext = os.path.splitext(self.filename)
-        else:
-            self._filename = artifact
-            self._name = artifact
-            self._ext = 'N/A'
-            self._filepath = 'N/A'
+        self._lineage: LineageT = lineage
+        self._group: GroupT = group
+
         # Update the self._name by dropping 'group' and/or any other extra
         # beyond the template defined above.
         self._find_name()
-        self._lineage_genealogy: List[LineageT] = self._genealogy[lineage]
+        self._lineage_genealogy: list[LineageT] = self._genealogy[lineage]
         self._lineage_attributes = \
             list(self.genealogy_attributes[lineage].keys())
         self._physical_attributes = self.project_attributes[lineage]
@@ -239,21 +252,62 @@ class ParserBase(ABC):
 
     def __repr__(self) -> str:
         return (
-            f"Artifact('{self.filename}' in geometry"
-            f" '{self.geometry}' from group '{self.group}' with"
-            f" lineage '{self.lineage}' and"
-            f" topology '{self.topology}' in project '{self.project_name}')"
+            f"Artifact(filename='{self.filename}', "
+            f"geometry='{self.geometry}', "
+            f"group='{self.group}', lineage='{self.lineage}', "
+            f"topology='{self.topology}', project='{self.project_name}')"
         )
 
+    @classmethod
+    def from_name(
+        cls,
+        name: str,
+        lineage: LineageT,
+        group: GroupT
+    ) -> Self:
+        """
+        Construct a parser from a *name token* (not a path).
+
+        Sets `filepath` and `ext` to empty strings and keeps the token as both
+        `filename` and `name` before `_find_name()` normalization.
+        """
+        if not name:
+            raise ValueError("'name' cannot be an empty string.")
+
+        # Bypass __init__; we populate fields manually
+        self = cls.__new__(cls)  # type: ignore[misc]
+
+        # Minimal identity (class attributes must be available)
+        self._project_name = cls.__name__
+        invalid_keyword(lineage, self.lineages)
+        invalid_keyword(group, self.groups)
+        self._lineage = lineage
+        self._group = group
+
+        # Token semantics (no filesystem)
+        self._filepath = ""
+        self._filename = name
+        self._name = name
+        self._ext = ""
+
+        # Continue same setup pipeline
+        self._find_name()
+        self._lineage_genealogy = self._genealogy[lineage]
+        self._lineage_attributes = \
+            list(self.genealogy_attributes[lineage].keys())
+        self._physical_attributes = self.project_attributes[lineage]
+        self._attributes = self._lineage_attributes + self._physical_attributes
+        return self
+
     @property
-    def lineages(self) -> List[LineageT]:
+    def lineages(self) -> list[LineageT]:
         """
         List of all the acceptable lineages.
         """
         return self._lineages
 
     @property
-    def genealogy(self) -> Dict[LineageT, List[LineageT]]:
+    def genealogy(self) -> dict[LineageT, list[LineageT]]:
         """
         Dictionary of lineages and their parent lineages.
         """
@@ -269,7 +323,7 @@ class ParserBase(ABC):
         return self._geometry
 
     @property
-    def groups(self) -> List[GroupT]:
+    def groups(self) -> list[GroupT]:
         """
         List of valid group names for the subclass.
         """
@@ -287,7 +341,7 @@ class ParserBase(ABC):
         return self._topology
 
     @property
-    def genealogy_attributes(self) -> Dict[LineageT, OrderedDict[str, str]]:
+    def genealogy_attributes(self) -> dict[LineageT, OrderedDict[str, str]]:
         """
         Dictionary of lineage-specific attributes. Each key is a lineage type,
         and each value is an OrderedDict mapping attribute names to their
@@ -299,10 +353,10 @@ class ParserBase(ABC):
         return self._genealogy_attributes
 
     @property
-    def project_attributes(self) -> Dict[str, List[str]]:
+    def project_attributes(self) -> dict[LineageT, list[str]]:
         """
         Dictionary of project attributes. Each key is a lineage type,
-        and each value is an OrderedDict mapping attribute names to their
+        and each value is an dict mapping attribute names to their
         short-form representations.
         """
         if self._project_attributes is None:
@@ -333,13 +387,6 @@ class ParserBase(ABC):
         return self._group
 
     @property
-    def ispath(self) -> bool:
-        """
-        Return the current ispath.
-        """
-        return self._ispath
-
-    @property
     def ext(self) -> str:
         """
         Return the current file extension.
@@ -368,21 +415,21 @@ class ParserBase(ABC):
         return self._project_name
 
     @property
-    def attributes(self) -> List[str]:
+    def attributes(self) -> list[str]:
         """
         Return lineage-specific and project attributes for an artifact.
         """
         return self._attributes
 
     @property
-    def lineage_genealogy(self) -> List[LineageT]:
+    def lineage_genealogy(self) -> list[LineageT]:
         """
         Return the parents of a given `lineage`.
         """
         return self._lineage_genealogy
 
     @property
-    def lineage_attributes(self) -> List[str]:
+    def lineage_attributes(self) -> list[str]:
         """
         Return lineage-specific attributes for an artifact with a given
         `lineage`.
@@ -390,7 +437,7 @@ class ParserBase(ABC):
         return self._lineage_attributes
 
     @property
-    def physical_attributes(self) -> List[str]:
+    def physical_attributes(self) -> list[str]:
         """
         Return project-level attributes for an artifact with a given
         `lineage`.
@@ -402,15 +449,15 @@ class ParserBase(ABC):
         parses the unique lineage_name (the first substring of filename
         and/or the segment keyword middle substring) of a filename.
         """
-        if self._lineage in ['segment', 'whole']:
+        if self.lineage in ['segment', 'whole']:
             # a 'segment' lineage only used in 'probe' phase
             # a 'whole' lineage used in 'probe' or 'analyze' phases
             # so its lineage_name is either ended by 'group' keyword or '-'.
             # these two combined below:
-            self._name = \
-                self._name.split('.' + self._group)[0].split('-')[0]
+            base = self.name.split(f".{self.group}")[0]
+            self._name = base.split('-')[0]
         else:  # 'ensemble' or 'space' lineages
-            self._name = self._name.split('-')[0]
+            self._name = self.name.split('-')[0]
 
     @abstractmethod
     def _initiate_attributes(self) -> None:
@@ -432,9 +479,9 @@ class ParserBase(ABC):
 
         Each lineage on the left has all the lineages on its right.
         """
-        for lineage_name in self._lineages:
+        for lineage_name in self.lineages:
             lineage_value = 'N/A'
-            if lineage_name in self.genealogy[self._lineage]:
+            if lineage_name in self.genealogy[self.lineage]:
                 lineage_value = ''
                 lineage_attr = self.genealogy_attributes[lineage_name]
                 for attr_long, attr_short in lineage_attr.items():
@@ -456,7 +503,7 @@ class ParserBase(ABC):
         """
 
     @abstractmethod
-    def _dependant_attributes(self) -> None:
+    def _dependent_attributes(self) -> None:
         """
         Calculate system attributes based on parsed values.
         """
@@ -501,9 +548,6 @@ class TwoMonDepCub(ParserBase):
         ``'space'``.
     group : GroupT
         Particle group type, either ``'bug'`` or ``'all'``.
-    ispath : bool, optional
-        If True, interpret `artifact` as a full filepath; if False, interpret
-        it as a bare filename or name. Default is `False`.
 
     Attributes
     ----------
@@ -613,15 +657,14 @@ class TwoMonDepCub(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT,
-        ispath: bool = False
+        group: GroupT
     ) -> None:
-        super().__init__(artifact, lineage, group, ispath=ispath)
+        super().__init__(artifact, lineage, group)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
         if self.lineage in ['segment', 'whole', 'ensemble_long']:
-            self._dependant_attributes()
+            self._dependent_attributes()
 
     def _initiate_attributes(self) -> None:
         """
@@ -631,7 +674,7 @@ class TwoMonDepCub(ParserBase):
         -----
         The negative initial values are unphysical.
         """
-        if self._lineage in ['segment', 'whole', 'ensemble_long']:
+        if self.lineage in ['segment', 'whole', 'ensemble_long']:
             self.phi_bulk_m: float = -1
             self.rho_bulk_m: float = -1
             self.phi_bulk_c: float = -1
@@ -649,9 +692,9 @@ class TwoMonDepCub(ParserBase):
         class instantiation.
         """
         name_strs = re.compile(r"([a-zA-Z\-]+)")
-        words = name_strs.split(self._name)
+        words = name_strs.split(self.name)
         attrs_float = ['dmon', 'lcube', 'dcrowd', 'dt', 'd_sur']
-        for attr, keyword in self._genealogy_attributes[self._lineage].items():
+        for attr, keyword in self.genealogy_attributes[self.lineage].items():
             try:
                 val = words[words.index(keyword) + 1]
                 setattr(self,
@@ -661,9 +704,9 @@ class TwoMonDepCub(ParserBase):
                     # Cube full side from its half-side
                     setattr(self, attr, 2 * getattr(self, attr))
             except ValueError:
-                print(f"'{keyword}' attribute not found in '{self._name}'")
+                print(f"'{keyword}' attribute not found in '{self.name}'")
 
-    def _dependant_attributes(self) -> None:
+    def _dependent_attributes(self) -> None:
         """
         Calculate system attributes based on parsed values.
         """
@@ -729,9 +772,6 @@ class SumRuleCyl(ParserBase):
         Type of the lineage of the name.
     group : {'bug', 'all'}
         Particle group type, with `bug` representing a single polymer.
-    ispath : bool, optional
-        If True, interpret `artifact` as a full filepath; if False, interpret
-        it as a bare filename or name. Default is `False`.
 
     Attributes
     ----------
@@ -845,15 +885,14 @@ class SumRuleCyl(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT,
-        ispath: bool = False
+        group: GroupT
     ) -> None:
-        super().__init__(artifact, lineage, group, ispath=ispath)
+        super().__init__(artifact, lineage, group)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
         if self.lineage in ['segment', 'whole', 'ensemble_long']:
-            self._dependant_attributes()
+            self._dependent_attributes()
 
     def _initiate_attributes(self) -> None:
         """
@@ -864,7 +903,7 @@ class SumRuleCyl(ParserBase):
         The negative initial values are unphysical.
         """
         self.dmon: float = 1
-        if self._lineage in ['segment', 'whole', 'ensemble_long']:
+        if self.lineage in ['segment', 'whole', 'ensemble_long']:
             self.phi_bulk_m: float = -1
             self.rho_bulk_m: float = -1
             self.phi_bulk_c: float = -1
@@ -882,9 +921,9 @@ class SumRuleCyl(ParserBase):
         class instantiation.
         """
         name_strs = re.compile(r"([a-zA-Z\-]+)")
-        words = name_strs.split(self._name)
+        words = name_strs.split(self.name)
         attrs_float = ['dmon', 'dcyl', 'lcyl', 'epsilon', 'dcrowd', 'dt']
-        for attr, keyword in self._genealogy_attributes[self._lineage].items():
+        for attr, keyword in self.genealogy_attributes[self.lineage].items():
             try:
                 val = words[words.index(keyword) + 1]
                 setattr(self,
@@ -898,9 +937,9 @@ class SumRuleCyl(ParserBase):
                     # wall-forming particles with size 1
                     setattr(self, attr, 2 * getattr(self, attr) - 1.0)
             except ValueError:
-                print(f"'{keyword}' attribute not found in '{self._name}'")
+                print(f"'{keyword}' attribute not found in '{self.name}'")
 
-    def _dependant_attributes(self) -> None:
+    def _dependent_attributes(self) -> None:
         """
         Calculate system attributes based on parsed values.
         """
@@ -970,9 +1009,6 @@ class SumRuleCubHeteroRing(ParserBase):
         Type of the lineage of the name.
     group : {'bug', 'all'}
         Particle group type, with `bug` representing a single polymer.
-    ispath : bool, optional
-        If True, interpret `artifact` as a full filepath; if False, interpret
-        it as a bare filename or name. Default is `False`.
 
     Attributes
     ----------
@@ -1107,15 +1143,14 @@ class SumRuleCubHeteroRing(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT,
-        ispath: bool = False
+        group: GroupT
     ) -> None:
-        super().__init__(artifact, lineage, group, ispath=ispath)
+        super().__init__(artifact, lineage, group)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
         if self.lineage in ['segment', 'whole', 'ensemble_long']:
-            self._dependant_attributes()
+            self._dependent_attributes()
 
     def _initiate_attributes(self) -> None:
         """
@@ -1128,7 +1163,7 @@ class SumRuleCubHeteroRing(ParserBase):
         self.dmon_small: float = 1
         self.mmon_small: float = self.dmon_small**3
         self.mcrowd: float = -1
-        if self._lineage in ['segment', 'whole', 'ensemble_long']:
+        if self.lineage in ['segment', 'whole', 'ensemble_long']:
             self.phi_bulk_m_small: float = -1
             self.rho_bulk_m_small: float = -1
             self.phi_bulk_m_large: float = -1
@@ -1150,9 +1185,9 @@ class SumRuleCubHeteroRing(ParserBase):
         class instantiation.
         """
         name_strs = re.compile(r"([a-zA-Z\-]+)")
-        words = name_strs.split(self._name)
+        words = name_strs.split(self.name)
         attrs_float = ['dmon_large', 'lcube', 'mmon_large', 'dcrowd', 'dt']
-        for attr, keyword in self._genealogy_attributes[self._lineage].items():
+        for attr, keyword in self.genealogy_attributes[self.lineage].items():
             try:
                 val = words[words.index(keyword) + 1]
                 setattr(self,
@@ -1162,9 +1197,9 @@ class SumRuleCubHeteroRing(ParserBase):
                     # Cube full side from its half-side
                     setattr(self, attr, 2 * getattr(self, attr))
             except ValueError:
-                print(f"'{keyword}' attribute not found in '{self._name}'")
+                print(f"'{keyword}' attribute not found in '{self.name}'")
 
-    def _dependant_attributes(self) -> None:
+    def _dependent_attributes(self) -> None:
         """
         Calculate system attributes based on parsed values.
         """
@@ -1246,9 +1281,6 @@ class SumRuleCubHeteroLinear(ParserBase):
         Type of the lineage of the name.
     group : {'bug', 'all'}
         Particle group type, with `bug` representing a single polymer.
-    ispath : bool, optional
-        If True, interpret `artifact` as a full filepath; if False, interpret
-        it as a bare filename or name. Default is `False`.
 
     Attributes
     ----------
@@ -1383,15 +1415,14 @@ class SumRuleCubHeteroLinear(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT,
-        ispath: bool = False
+        group: GroupT
     ) -> None:
-        super().__init__(artifact, lineage, group, ispath=ispath)
+        super().__init__(artifact, lineage, group)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
         if self.lineage in ['segment', 'whole', 'ensemble_long']:
-            self._dependant_attributes()
+            self._dependent_attributes()
 
     def _initiate_attributes(self) -> None:
         """
@@ -1404,7 +1435,7 @@ class SumRuleCubHeteroLinear(ParserBase):
         self.dmon_small: float = 1
         self.mmon_small: float = self.dmon_small**3
         self.mcrowd: float = -1
-        if self._lineage in ['segment', 'whole', 'ensemble_long']:
+        if self.lineage in ['segment', 'whole', 'ensemble_long']:
             self.phi_bulk_m_small: float = -1
             self.rho_bulk_m_small: float = -1
             self.phi_bulk_m_large: float = -1
@@ -1426,9 +1457,9 @@ class SumRuleCubHeteroLinear(ParserBase):
         class instantiation.
         """
         name_strs = re.compile(r"([a-zA-Z\-]+)")
-        words = name_strs.split(self._name)
+        words = name_strs.split(self.name)
         attrs_float = ['dmon_large', 'lcube', 'mmon_large', 'dcrowd', 'dt']
-        for attr, keyword in self._genealogy_attributes[self._lineage].items():
+        for attr, keyword in self.genealogy_attributes[self.lineage].items():
             try:
                 val = words[words.index(keyword) + 1]
                 setattr(self,
@@ -1438,9 +1469,9 @@ class SumRuleCubHeteroLinear(ParserBase):
                     # Cube full side from its half-side
                     setattr(self, attr, 2 * getattr(self, attr))
             except ValueError:
-                print(f"'{keyword}' attribute not found in '{self._name}'")
+                print(f"'{keyword}' attribute not found in '{self.name}'")
 
-    def _dependant_attributes(self) -> None:
+    def _dependent_attributes(self) -> None:
         """
         Calculate system attributes based on parsed values.
         """
@@ -1522,9 +1553,6 @@ class TransFociCyl(ParserBase):
         Type of the lineage of the name.
     group : {'bug', 'all'}
         Particle group type, with `bug` representing a single polymer.
-    ispath : bool, optional
-        If True, interpret `artifact` as a full filepath; if False, interpret
-        it as a bare filename or name. Default is `False`.
 
     Attributes
     ----------
@@ -1684,15 +1712,14 @@ class TransFociCyl(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT,
-        ispath: bool = False
+        group: GroupT
     ) -> None:
-        super().__init__(artifact, lineage, group, ispath=ispath)
+        super().__init__(artifact, lineage, group)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
         if self.lineage in ['segment', 'whole', 'ensemble_long']:
-            self._dependant_attributes()
+            self._dependent_attributes()
 
     def _initiate_attributes(self) -> None:
         """
@@ -1705,7 +1732,7 @@ class TransFociCyl(ParserBase):
         self.dmon_small: float = 1
         self.mmon_small: float = self.dmon_small**3
         self.mcrowd: float = -1
-        if self._lineage in ['segment', 'whole', 'ensemble_long']:
+        if self.lineage in ['segment', 'whole', 'ensemble_long']:
             self.phi_bulk_m_small: float = -1
             self.rho_bulk_m_small: float = -1
             self.phi_bulk_m_large: float = -1
@@ -1727,10 +1754,10 @@ class TransFociCyl(ParserBase):
         class instantiation.
         """
         name_strs = re.compile(r"([a-zA-Z\-]+)")
-        words = name_strs.split(self._name)
+        words = name_strs.split(self.name)
         attrs_float = ['dmon_large', 'dcyl', 'lcyl', 'epsilon_small',
                        'epsilon_large', 'mmon_large', 'dcrowd', 'dt']
-        for attr, keyword in self._genealogy_attributes[self._lineage].items():
+        for attr, keyword in self.genealogy_attributes[self.lineage].items():
             try:
                 val = words[words.index(keyword) + 1]
                 setattr(self,
@@ -1744,9 +1771,9 @@ class TransFociCyl(ParserBase):
                     # wall-forming particles with size 1
                     setattr(self, attr, 2 * getattr(self, attr) - 1.0)
             except ValueError:
-                print(f"'{keyword}' attribute not found in '{self._name}'")
+                print(f"'{keyword}' attribute not found in '{self.name}'")
 
-    def _dependant_attributes(self) -> None:
+    def _dependent_attributes(self) -> None:
         """
         Calculate system attributes based on parsed values.
         """
@@ -1834,9 +1861,6 @@ class TransFociCub(ParserBase):
         Type of the lineage of the name.
     group : {'bug', 'all'}
         Particle group type, with `bug` representing a single polymer.
-    ispath : bool, optional
-        If True, interpret `artifact` as a full filepath; if False, interpret
-        it as a bare filename or name. Default is `False`.
 
     Attributes
     ----------
@@ -1975,15 +1999,14 @@ class TransFociCub(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT,
-        ispath: bool = False
+        group: GroupT
     ) -> None:
-        super().__init__(artifact, lineage, group, ispath=ispath)
+        super().__init__(artifact, lineage, group)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
         if self.lineage in ['segment', 'whole', 'ensemble_long']:
-            self._dependant_attributes()
+            self._dependent_attributes()
 
     def _initiate_attributes(self) -> None:
         """
@@ -1996,7 +2019,7 @@ class TransFociCub(ParserBase):
         self.dmon_small: float = 1
         self.mmon_small: float = self.dmon_small**3
         self.mcrowd: float = -1
-        if self._lineage in ['segment', 'whole', 'ensemble_long']:
+        if self.lineage in ['segment', 'whole', 'ensemble_long']:
             self.phi_bulk_m_small: float = -1
             self.rho_bulk_m_small: float = -1
             self.phi_bulk_m_large: float = -1
@@ -2018,9 +2041,9 @@ class TransFociCub(ParserBase):
         class instantiation.
         """
         name_strs = re.compile(r"([a-zA-Z\-]+)")
-        words = name_strs.split(self._name)
+        words = name_strs.split(self.name)
         attrs_float = ['dmon_large', 'lcube', 'mmon_large', 'dcrowd', 'dt']
-        for attr, keyword in self._genealogy_attributes[self._lineage].items():
+        for attr, keyword in self.genealogy_attributes[self.lineage].items():
             try:
                 val = words[words.index(keyword) + 1]
                 setattr(self,
@@ -2030,9 +2053,9 @@ class TransFociCub(ParserBase):
                     # Cube full side from its half-side
                     setattr(self, attr, 2 * getattr(self, attr))
             except ValueError:
-                print(f"'{keyword}' attribute not found in '{self._name}'")
+                print(f"'{keyword}' attribute not found in '{self.name}'")
 
-    def _dependant_attributes(self) -> None:
+    def _dependent_attributes(self) -> None:
         """
         Calculate system attributes based on parsed values.
         """
@@ -2114,9 +2137,6 @@ class HnsCub(ParserBase):
         Type of the lineage of the name.
     group : {'nucleoid', 'all'}
         Particle group type, with `bug` representing a single polymer.
-    ispath : bool, optional
-        If True, interpret `artifact` as a full filepath; if False, interpret
-        it as a bare filename or name. Default is `False`.
 
     Attributes
     ----------
@@ -2243,15 +2263,14 @@ class HnsCub(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT,
-        ispath: bool = False
+        group: GroupT
     ) -> None:
-        super().__init__(artifact, lineage, group, ispath=ispath)
+        super().__init__(artifact, lineage, group)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
         if self.lineage in ['segment', 'whole', 'ensemble_long']:
-            self._dependant_attributes()
+            self._dependent_attributes()
 
     def _initiate_attributes(self) -> None:
         """
@@ -2268,7 +2287,7 @@ class HnsCub(ParserBase):
         self.bdump: int = 5000
         self.adump: int = 10000
         self.eps_hm: float = 29
-        if self._lineage in ['segment', 'whole', 'ensemble_long']:
+        if self.lineage in ['segment', 'whole', 'ensemble_long']:
             self.phi_bulk_m: float = -1
             self.rho_bulk_m: float = -1
             self.phi_bulk_hns: float = -1
@@ -2288,9 +2307,9 @@ class HnsCub(ParserBase):
         class instantiation.
         """
         name_strs = re.compile(r"([a-zA-Z\-]+)")
-        words = name_strs.split(self._name)
+        words = name_strs.split(self.name)
         attrs_float = ['kbmm', 'lcube', 'dcrowd', 'epshc']
-        for attr, keyword in self._genealogy_attributes[self._lineage].items():
+        for attr, keyword in self.genealogy_attributes[self.lineage].items():
             try:
                 val = words[words.index(keyword) + 1]
                 setattr(self,
@@ -2300,9 +2319,9 @@ class HnsCub(ParserBase):
                     # Cube full side from its half-side
                     setattr(self, attr, 2 * getattr(self, attr))
             except ValueError:
-                print(f"'{keyword}' attribute not found in '{self._name}'")
+                print(f"'{keyword}' attribute not found in '{self.name}'")
 
-    def _dependant_attributes(self) -> None:
+    def _dependent_attributes(self) -> None:
         """
         Calculate system attributes based on parsed values.
         """
@@ -2380,9 +2399,6 @@ class HnsCyl(ParserBase):
         Type of the lineage of the name.
     group : {'nucleoid', 'all'}
         Particle group type, with `bug` representing a single polymer.
-    ispath : bool, optional
-        If True, interpret `artifact` as a full filepath; if False, interpret
-        it as a bare filename or name. Default is `False`.
 
     Attributes
     ----------
@@ -2521,15 +2537,14 @@ class HnsCyl(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT,
-        ispath: bool = False
+        group: GroupT
     ) -> None:
-        super().__init__(artifact, lineage, group, ispath=ispath)
+        super().__init__(artifact, lineage, group)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
         if self.lineage in ['segment', 'whole', 'ensemble_long']:
-            self._dependant_attributes()
+            self._dependent_attributes()
 
     def _initiate_attributes(self) -> None:
         """
@@ -2546,7 +2561,7 @@ class HnsCyl(ParserBase):
         self.bdump: int = 5000
         self.adump: int = 10000
         self.eps_hm: float = 29
-        if self._lineage in ['segment', 'whole', 'ensemble_long']:
+        if self.lineage in ['segment', 'whole', 'ensemble_long']:
             self.phi_bulk_m: float = -1
             self.rho_bulk_m: float = -1
             self.phi_bulk_hns: float = -1
@@ -2566,9 +2581,9 @@ class HnsCyl(ParserBase):
         class instantiation.
         """
         name_strs = re.compile(r"([a-zA-Z\-]+)")
-        words = name_strs.split(self._name)
+        words = name_strs.split(self.name)
         attrs_float = ['bend_mm', 'dcyl', 'lcyl', 'dcrowd', 'eps_hc']
-        for attr, keyword in self._genealogy_attributes[self._lineage].items():
+        for attr, keyword in self.genealogy_attributes[self.lineage].items():
             try:
                 val = words[words.index(keyword) + 1]
                 setattr(self,
@@ -2582,9 +2597,9 @@ class HnsCyl(ParserBase):
                     # wall-forming particles with size 1
                     setattr(self, attr, 2 * getattr(self, attr) - 1.0)
             except ValueError:
-                print(f"'{keyword}' attribute not found in '{self._name}'")
+                print(f"'{keyword}' attribute not found in '{self.name}'")
 
-    def _dependant_attributes(self) -> None:
+    def _dependent_attributes(self) -> None:
         """
         Calculate system attributes based on parsed values.
         """

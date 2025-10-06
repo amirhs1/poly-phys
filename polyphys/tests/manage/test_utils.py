@@ -1,6 +1,9 @@
+import re
 import tempfile
 import gzip
 import os
+import warnings
+from pathlib import PosixPath
 import pytest
 import numpy as np
 
@@ -8,7 +11,9 @@ from polyphys.manage.utils import (
     read_camel_case,
     to_float_if_possible,
     split_alphanumeric,
+    normalize_exts,
     sort_filenames,
+    sort_filenames_str,
     openany,
     openany_context,
     round_down_first_non_zero,
@@ -44,6 +49,18 @@ def test_split_alphanumeric():
     assert split_alphanumeric("123.45file") == [123.45, 'file']
 
 
+def test_normalize_exts_single_str_without_dot():
+    assert normalize_exts("npy") == (".npy",)
+
+
+def test_normalize_exts_single_str_with_dot():
+    assert normalize_exts(".trj") == (".trj",)
+
+
+def test_normalize_exts_tuple_mixed():
+    assert normalize_exts(("trj", ".lammpstrj")) == (".trj", ".lammpstrj")
+
+
 @pytest.fixture
 def sample_formats():
     return ['data', ('trj', 'lammpstrj')]
@@ -68,9 +85,11 @@ def sample_input_files_single_format():
 
 def test_sort_filenames_standard(sample_input_files, sample_formats):
     result = sort_filenames(sample_input_files, sample_formats)
-    assert result == [('file1.data', 'file1.trj'),
-                      ('file2.data', 'file2.trj'),
-                      ('file3.data', 'file3.lammpstrj')]
+    assert result == [
+        (PosixPath("file1.data"), PosixPath("file1.trj")),
+        (PosixPath("file2.data"), PosixPath("file2.trj")),
+        (PosixPath("file3.data"), PosixPath("file3.lammpstrj")),
+    ]
 
 
 def test_sort_filenames_empty_input(sample_formats):  # Only needs formats
@@ -82,13 +101,137 @@ def test_sort_filenames_single_file_type(
         sample_input_files_single_format, sample_formats_single_format):
     result = sort_filenames(
         sample_input_files_single_format, sample_formats_single_format)
-    assert result == \
-        [('file1.data',), ('file2.data',), ('file3.data',)]
+    assert result == [
+        (PosixPath("file1.data"),),
+        (PosixPath("file2.data"),),
+        (PosixPath("file3.data"),),
+    ]
+
+
+def test_sort_filenames_incompatible_formats_warns(sample_formats):
+    """
+    Mixed completeness: include only complete basenames, warn on incomplete
+    ones. Here: file1 (complete), file3 (complete),
+    file2 (missing .data) -> warn & drop.
+    """
+    files = ['file2.trj', 'file1.trj', 'file1.data', 'file3.lammpstrj',
+             'file3.data']
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        result = \
+            sort_filenames(files, sample_formats)
+
+    assert result == [
+        (PosixPath("file1.data"), PosixPath("file1.trj")),
+        (PosixPath("file3.data"), PosixPath("file3.lammpstrj")),
+    ]
+
+    # One warning about the missing counterpart for file2
+    messages = "\n".join(str(w.message) for w in rec)
+    assert "'file2.trj' does not have matching 'file2.data' " + \
+        "so it is ignored" in messages
+
+
+def test_sort_filenames_raises_on_duplicate_slot(sample_formats):
+    """
+    Two equivalent extensions (.trj and .lammpstrj) for same basename in
+    same slot. Should raise ValueError.
+    """
+    files = ['file1.trj', 'file1.data', 'file1.lammpstrj']
+    with pytest.raises(
+            ValueError, match="Duplicate files for basename 'file1'"):
+        sort_filenames(files, sample_formats)
+
+
+def test_sort_filenames_raises_on_multiple_group_match():
+    """
+    An extension appears in more than one format group → ambiguous.
+    Should raise ValueError.
+    """
+    formats = ['data', ('trj', 'data')]
+    files = ['file1.trj', 'file1.data',]
+    expected = "Extension '.data' appears in multiple format groups: " \
+               "('.data',) and ('.trj', '.data')"
+    with pytest.raises(ValueError, match=re.escape(expected)):
+        sort_filenames(files, formats)
 
 
 def test_sort_filenames_single_file_type_mutiple_formats(
         sample_input_files_single_format, sample_formats):
-    result = sort_filenames(
+    result = sort_filenames_str(
+        sample_input_files_single_format, sample_formats)
+    assert result == []  # No 'trj' files -> empty zip
+
+
+def test_sort_filenames_preserves_slot_order():
+    """
+    The tuple order must follow the order of `formats`, even with 3+ slots.
+    """
+    formats = ['data', 'trj', 'npy']
+    files = [
+        'file1.data', 'file1.trj', 'file1.npy',
+        'file2.npy', 'file2.trj', 'file2.data',
+    ]
+    result = sort_filenames(files, formats)
+    assert result == [
+        (PosixPath('file1.data'), PosixPath('file1.trj'),
+         PosixPath('file1.npy')),
+        (PosixPath('file2.data'), PosixPath('file2.trj'),
+         PosixPath('file2.npy')),
+    ]
+
+
+def test_sort_filenames_compound_extension_distinct_from_simple():
+    """
+    '.tar.gz' is distinct from '.gz' unless explicitly grouped by the user.
+    Here they are different slots; files must pair by basename across both.
+    """
+    formats = [('tar.gz'), ('gz')]
+    files = [
+        'sample1.0.tar.gz', 'sample1.0.gz',
+        'sample2.0.tar.gz', 'sample2.0.gz',
+    ]
+    result = sort_filenames(files, formats)
+    assert result == [
+        (PosixPath('sample1.0.tar.gz'), PosixPath('sample1.0.gz')),
+        (PosixPath('sample2.0.tar.gz'), PosixPath('sample2.0.gz')),
+    ]
+
+
+def test_sort_filenames_case_sensitivity():
+    """
+    Matching is case-sensitive: '.DATA' does not match '.data'.
+    """
+    formats = ['DATA']  # will normalize to '.DATA'
+    files = ['a.data', 'b.DATA']
+    result = sort_filenames(files, formats)
+    # Only the case-matching file should appear
+    assert result == [(PosixPath('b.DATA'),)]
+
+
+def test_sort_filenames_str_standard(sample_input_files, sample_formats):
+    result = sort_filenames_str(sample_input_files, sample_formats)
+    assert result == [('file1.data', 'file1.trj'),
+                      ('file2.data', 'file2.trj'),
+                      ('file3.data', 'file3.lammpstrj')]
+
+
+def test_sort_filenames_str_empty_input(sample_formats):  # Only needs formats
+    result = sort_filenames_str([], sample_formats)
+    assert result == []
+
+
+def test_sort_filenames_str_single_file_type(
+        sample_input_files_single_format, sample_formats_single_format):
+    result = sort_filenames_str(
+        sample_input_files_single_format, sample_formats_single_format)
+    assert result == \
+        [('file1.data',), ('file2.data',), ('file3.data',)]
+
+
+def test_sort_filenames_str_single_file_type_mutiple_formats(
+        sample_input_files_single_format, sample_formats):
+    result = sort_filenames_str(
         sample_input_files_single_format, sample_formats)
     assert result == []  # No 'trj' files → empty zip
 

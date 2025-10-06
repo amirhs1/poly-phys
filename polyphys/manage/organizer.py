@@ -67,13 +67,11 @@ Dependencies
 - `numpy`: For numerical operations on arrays, such as summing or concatenating
   segments.
 - `pandas`: For handling tabular data and DataFrames used in data aggregation.
-- `typing`: For type hints, including `Optional`, `List`, and `Literal` types.
 
 Functions
 =========
-.. autofunction:: sort_filenames
 .. autofunction:: create_fullname
-.. autofunction:: save_parent
+.. autofunction:: save_artifact
 .. autofunction:: make_database
 .. autofunction:: whole_from_segments
 .. autofunction:: whole_from_file
@@ -103,7 +101,7 @@ conditions within spaces and galaxies.
 
 Examples
 ========
-Example of grouping segments into a whole:
+Example of grouping segments into a whole (histogram):
 
 >>> segments = [("segment1.npy",), ("segment2.npy",)]
 >>> whole_data = whole_from_segments('density', segments, parser=my_parser,
@@ -127,20 +125,30 @@ Notes
 """
 
 import warnings
-from typing import (
-    List, Dict, Tuple, Optional, Union, Callable, Literal
-    )
+import logging
+from typing import Callable, Literal, Sequence, Iterator
 import os
 import pathlib
+from pathlib import Path
 from glob import glob
 import numpy as np
 import pandas as pd
 from .types import (
-    GroupT, PropertyT, ParserType, StageT, PhaseT, WholeRelationT,
-    PrimitiveLineageT
-    )
-from ..analyze.clusters import whole_dist_mat_foci
+    Pathish,
+    PathGroup,
+    AnyPathIter,
+    GroupT,
+    PropertyT,
+    ParserInstanceT,
+    ParserClassT,
+    StageT,
+    PhaseT,
+    WholeRelationT,
+    PrimitiveLineageT,
+)
 from .utils import invalid_keyword, sort_filenames, round_up_nearest
+
+logger = logging.getLogger(__name__)
 
 
 def create_fullname(name: str, group: GroupT, prop: PropertyT) -> str:
@@ -152,9 +160,9 @@ def create_fullname(name: str, group: GroupT, prop: PropertyT) -> str:
     ----------
     name : str
         The base name.
-    group : str
+    group : :py:data:`GroupT`
         Particle group (e.g., 'bug' or 'nucleoid').
-    prop : str
+    prop : :py:data:`PropertyT`
         Physical property name (e.g., 'density').
 
     Returns
@@ -168,13 +176,13 @@ def create_fullname(name: str, group: GroupT, prop: PropertyT) -> str:
     >>> create_fullname('sample', 'bug', 'density')
     'sample-bug-density'
     """
-    return '-'.join([name, group, prop])
+    return "-".join([name, group, prop])
 
 
-def save_parent(
+def save_artifact(
     filename: str,
-    data: Union[np.ndarray, pd.DataFrame, Dict[str, np.ndarray]],
-    save_to: str,
+    data: np.ndarray | pd.DataFrame | dict[str, np.ndarray],
+    save_to: Pathish,
 ) -> None:
     """
     Save the `data` to a specified file format, allowing structured file
@@ -184,7 +192,7 @@ def save_parent(
     ----------
     filename : str
         The output file name.
-    data : Union[np.ndarray, pd.DataFrame, Dict[str, np.ndarray]]
+    data : np.ndarray | pd.DataFrame | dict[str, np.ndarray]
         Data to be saved. Accepted types:
 
         - `np.ndarray`: Saved as a .npy file.
@@ -204,13 +212,25 @@ def save_parent(
     --------
     Save a numpy array to a `.npy` file in the specified directory:
 
-    >>> save_parent('output', np.array([1, 2, 3]), 'density', 'all', "/data/")
+    >>> save_artifact(
+    ...     'output',
+    ...     np.array([1, 2, 3]),
+    ...     'density',
+    ...     'all',
+    ...     "/data/",
+    ... )
 
     Save a DataFrame to a `.csv` file:
 
     >>> import pandas as pd
     >>> df = pd.DataFrame({'A': [1, 2, 3]})
-    >>> save_parent('output', df, 'density', 'all', "/data/")
+    >>> save_artifact(
+    ...     'output',
+    ...     df,
+    ...     'density',
+    ...     'all',
+    ...     "/data/",
+    ... )
     """
     file_path = os.path.join(save_to, filename)
 
@@ -221,7 +241,7 @@ def save_parent(
         np.save(f"{file_path}.npy", data)
     elif isinstance(data, dict):
         for prop_key, prop_data in data.items():
-            _, prop_measure = prop_key.split('-')
+            _, prop_measure = prop_key.split("-")
             np.save(f"{file_path}-{prop_measure}.npy", prop_data)
     else:
         raise TypeError(
@@ -231,10 +251,10 @@ def save_parent(
 
 
 def make_database(
-    old_database: str,
-    phase: PhaseT,
-    stage: StageT,
-    group: GroupT,
+    old_database: Pathish,
+    phase: PhaseT | str,
+    stage: StageT | str,
+    group: GroupT | None,
 ) -> str:
     """
     Create a new directory path based on the provided `old_database` path and
@@ -243,7 +263,7 @@ def make_database(
 
     The `old_database` is expected to follow a structured naming convention:
     `prefix-old_phase-old_group-old_stage`, where each part represents an
-    aspect of the directory's role. This base structure helps generate the
+    aspect of the directory's content. This base structure helps generate the
     new path.
 
     The newly constructed directory name follows:
@@ -251,7 +271,7 @@ def make_database(
 
     Parameters
     ----------
-    old_database : str
+    old_database : Pathish
         Path to the reference directory whose structure will be used as a base.
     phase : {'simAll', 'simCont', 'log', 'trj', 'probe', 'analysis', 'viz',
             'galaxy'}
@@ -287,15 +307,15 @@ def make_database(
     """
     invalid_keyword(
         phase,
-        ['simAll', 'simCont', 'log', 'trj', 'probe', 'analysis', 'viz',
-         'galaxy'],
+        ["simsAll", "simsCont", "logs", "trjs", "probes", "analysis", "viz",
+         "galaxy", "allInOne"],
     )
 
     old_path = pathlib.Path(old_database)
 
     # Common prefix derived from old_database to create new directory name
-    prefix = old_path.parts[-1].split("*")[0].split('-')[0]
-    new_directory = '-'.join([part for part in [prefix, group, stage] if part])
+    prefix = old_path.parts[-1].split("*")[0].split("-")[0]
+    new_directory = "-".join([part for part in [prefix, group, stage] if part])
 
     # Construct the new database path in the same parent directory level as
     # the old one
@@ -316,14 +336,67 @@ def make_database(
     return str(new_database) + "/"
 
 
+def _as_path(item: Pathish | PathGroup) -> Path:
+    """Normalize a single item into a pathlib.Path.
+
+    Accepts either:
+      - a bare pathish (str, Path, os.PathLike)
+      - a sequence of pathish values (we take the first element)
+    """
+    # Bare pathish?
+    if isinstance(item, (str, os.PathLike)):
+        return Path(item)
+
+    # Sequence of pathish (e.g., tuple[Path, ...] from sort_filenames)
+    if isinstance(item, Sequence) and item:
+        first = item[0]
+        if isinstance(first, (str, os.PathLike)):
+            return Path(first)
+
+    raise TypeError(f"Unsupported path item: {type(item)!r} -> {item!r}")
+
+
+def _normalize_paths(paths: AnyPathIter) -> Iterator[Path]:
+    """Yield normalized Path objects from either a flat or grouped iterable."""
+    for item in paths:
+        # item is either Pathish or PathGroup; _as_path handles both
+        yield _as_path(item)
+
+
+def _assert_equal_bin_edges(arrays: Sequence[np.ndarray]) -> np.ndarray:
+    """
+    Ensure all input arrays of bin edges are identical.
+
+    Parameters
+    ----------
+    arrays : Sequence[np.ndarray]
+        Sequence of 1D arrays representing bin edges from different wholes
+        or segments.
+
+    Returns
+    -------
+    np.ndarray
+        A copy of the first array if all arrays are identical.
+
+    Raises
+    ------
+    ValueError
+        If any array differs from the first one.
+    """
+    ref = arrays[0]
+    if not all(np.array_equal(ref, a) for a in arrays[1:]):
+        raise ValueError("Bin edges are not identical across all arrays.")
+    return ref.copy()
+
+
 def whole_from_segments(
     prop: PropertyT,
-    segments: List[Tuple[str]],
-    parser: ParserType,
+    segments: AnyPathIter,
+    parser: ParserClassT,
     group: GroupT,
     relation: WholeRelationT,
-    save_to: Optional[str] = None,
-) -> Dict[str, np.ndarray]:
+    save_to: Pathish | None = None,
+) -> dict[str, np.ndarray]:
     """
     Generate 'whole' arrays by combining data segments for a specified
     property of a particle `group` within a defined `geometry`. The combination
@@ -331,17 +404,17 @@ def whole_from_segments(
 
     Parameters
     ----------
-    prop: PropertyT
+    prop: :py:data:`PropertyT`
         The physical property to process (e.g., 'density').
-    segments : List[Tuple[str]]
-        List of tuples where each tuple contains at least one segment file path
-        (e.g., to CSV files) for the `prop_`.
-    parser : ParserType
+    segments : :py:data:`AnyPathIter`
+        An iterable of paths to segment files (e.g., to CSV files) for the
+        `prop_`. Each path should point to a single segment file, which will be
+    parser : :py:class:`ParserClassT`
         A parser instance from `PolyPhys.manage.parser` module that interprets
         file paths or names and extracts attributes such as the `whole` name.
-    group : GroupT
+    group : :py:data:`GroupT`
         Type of the particle group.
-    relation : str
+    relation : :py:data:`WholeRelationT`
         Specifies how to combine segments into a whole. Accepted values:
 
         - 'histogram'
@@ -363,7 +436,7 @@ def whole_from_segments(
 
     Returns
     -------
-    Dict[str, np.ndarray]
+    dict[str, np.ndarray]
         Dictionary with whole names as keys and the combined whole data as
         numpy arrays.
 
@@ -388,42 +461,38 @@ def whole_from_segments(
             save_to='/output/path'
         )
     """
-    # Define combination strategies for each relation type
-    mapping_func = {
-        'histogram': lambda whole: (whole[0], np.sum(whole[1], axis=0)),
-        'tseries': lambda whole: (whole[0], np.concatenate(whole[1])),
-        'bin_edge': lambda whole: (whole[0], np.unique(np.array(whole[1]))),
-    }
-
     # Combine segments into wholes based on segment names and relation type
-    grouped_segments: Dict[str, List[np.ndarray]] = {}
-    for seg_path in segments:
-        seg_info = \
-            parser(seg_path[0], 'segment', group, ispath=True)
-        whole_name = getattr(seg_info, 'whole')
-        segment = np.load(seg_path[0])
+    grouped_segments: dict[str, list[np.ndarray]] = {}
+    for seg_path in _normalize_paths(segments):
+        seg_info = parser(seg_path, "segment", group)
+        whole_name = getattr(seg_info, "whole")
+        grouped_segments.setdefault(whole_name, []).append(np.load(seg_path))
 
-        grouped_segments.setdefault(whole_name, []).append(segment)
+    # Define reduction strategies for each relation type
+    reducers: dict[str, Callable[[Sequence[np.ndarray]], np.ndarray]] = {
+        "histogram": lambda arrs: np.sum(arrs, axis=0),
+        "tseries": lambda arrs: np.concatenate(arrs, axis=0),
+        "bin_edge": _assert_equal_bin_edges,
+    }
+    reducer = reducers[relation]
 
     # Apply the appropriate mapping function to merge each group of segments
     # into a whole.
-    wholes: Dict[str, np.ndarray] = dict(
-        map(mapping_func[relation], grouped_segments.items())
-    )
+    wholes: dict[str, np.ndarray] = \
+        {name: reducer(vals) for name, vals in grouped_segments.items()}
 
-    if save_to:
-        for whole_name, whole_data in wholes.items():
-            whole_fullname = create_fullname(whole_name, group, prop)
-            save_parent(whole_fullname, whole_data, save_to)
+    if save_to is not None:
+        for name, data in wholes.items():
+            save_artifact(create_fullname(name, group, prop), data, save_to)
 
     return wholes
 
 
 def whole_from_file(
-    whole_paths: List[Tuple[str]],
-    parser: ParserType,
+    whole_paths: AnyPathIter,
+    parser: ParserClassT,
     group: GroupT,
-) -> Dict[str, np.ndarray]:
+) -> dict[str, np.ndarray]:
     """
     Load data from 'whole' files for a specified physical property of a
     particle `group` within a given `geometry`. Each file path in `whole_paths`
@@ -431,11 +500,11 @@ def whole_from_file(
 
     Parameters
     ----------
-    whole_paths : List[Tuple[str]]
+    whole_paths : AnyPathIter
         List of tuples where each tuple contains the path to a single file
         representing a whole dataset for the `prop_`. Each file is loaded
         and processed independently.
-    parser : ParserType
+    parser : ParserClassT
         A parser instance from `PolyPhys.manage.parser` module that interprets
         file paths and extracts attributes such as the `whole` name.
     group : GroupT
@@ -443,7 +512,7 @@ def whole_from_file(
 
     Returns
     -------
-    Dict[str, np.ndarray]
+    dict[str, np.ndarray]
         Dictionary where keys are the `whole` names (derived from each file
         path)and values are numpy arrays containing the loaded data.
 
@@ -465,80 +534,88 @@ def whole_from_file(
             'bug'
         )
     """
-    wholes: Dict[str, np.ndarray] = {}
-    for whole_path in whole_paths:
-        whole_info = parser(whole_path[0], 'whole', group)
-        whole_name = getattr(whole_info, 'whole')
-        wholes[whole_name] = np.load(whole_path[0])
+    wholes: dict[str, np.ndarray] = {}
+    for whole_path in _normalize_paths(whole_paths):
+        whole_info = parser(whole_path, "whole", group)
+        wholes[getattr(whole_info, "whole")] = np.load(whole_path)
 
     return wholes
 
 
 def whole_from_dist_mat_t(
-    whole_paths: List[Tuple[str]],
-    parser: ParserType,
+    whole_paths: list[tuple[str]],
+    parser: ParserClassT,
     group: GroupT,
-) -> Tuple[
-    Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]
+    func: Callable[[str, ParserInstanceT],
+                   tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]]
+) -> tuple[
+    dict[str, pd.DataFrame], dict[str, pd.DataFrame], dict[str, pd.DataFrame]
 ]:
     """
-    Load pair distance matrix data for 'whole' files from given file paths,
-    processing specific distance-related physical properties (e.g.,
-    frequencies, radial distribution functions, time series). Each data type
-    is extracted and stored in separate dictionaries by whole name.
+    Load pair distance matrix 'whole' data from given file paths, processing
+    specific distance-related physical properties (i.e., frequencies, radial
+    distribution functions, time series).
+
+    Depending on the project, you must supply the `func` argument that knows
+    how to process the distance matrix for your specific project.
 
     Parameters
     ----------
-    whole_paths : List[Tuple[str]]
+    whole_paths : list[tuple[str]]
         List of tuples where each tuple contains the path to a file
-        representing a whole dataset.
-    parser : TransFociT
-        A parser instance that processes file paths to extract attributes such
-        as the whole name and distance matrix information.
+        representing a 'whole' dataset (typically a NumPy `.npy` distance
+        matrix).
+    parser : ParserClassT
+        A parser class used to create parser instances for each file. The
+        parser provides attributes such as `whole` (name identifier) and
+        simulation metadata.
     group : GroupT
-        The particle group to which the data pertains.
+        The particle group to which the data pertains (e.g., 'bug', 'all').
+    func : Callable[[str, ParserInstanceT],
+                    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]]
+        Project-specific processing function. It must accept two arguments:
+
+        - `whole_path` (str): path to the distance matrix file.
+        - `whole_info` (ParserInstanceT): parser instance for the file.
+
+        It must return a tuple of three pandas DataFrames corresponding to
+        frequency/histogram data, radial distribution data, and time-series
+        data.
 
     Returns
     -------
-    Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame],
-          Dict[str, pd.DataFrame]]
-        Three dictionaries with whole names as keys and DataFrames as values:
+    tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame],
+          dict[str, pd.DataFrame]]
+        hree dictionaries with whole names as keys and DataFrames as values:
 
-        - First dictionary contains frequency data.
-        - Second dictionary contains radial distribution functions (RDF).
-        - Third dictionary contains time series data.
+        - Frequency/histogram DataFrames
+        - Radial distribution function (RDF) DataFrames
+        - Time series DataFrames
 
     Raises
     ------
     ValueError
-        If `geometry`, `group`, or `topology` have invalid values.
-
-    Notes
-    -----
-    This function assumes that each file in `whole_paths` contains data in a
-    distance matrix format, which is typically used in molecular simulation
-    analysis for spatial or time-based properties.
+        If `geometry`, `group`, or `topology` are invalid.
 
     Examples
     --------
-    Load distance matrix data for multiple physical properties:
+    Load foci distance matrix data with a project-specific processor:
 
     >>> freqs, rdfs, tseries = whole_from_dist_mat_t(
-            [('path/to/whole1.npy',), ('path/to/whole2.npy',)],
-            my_parser_instance,
-            'bug'
-        )
+    ...     [('path/to/whole1.npy',), ('path/to/whole2.npy',)],
+    ...     my_parser_class,
+    ...     'bug',
+    ...     whole_dist_mat_foci
+    ... )
     """
-    wholes_freqs: Dict[str, pd.DataFrame] = {}
-    wholes_rdfs: Dict[str, pd.DataFrame] = {}
-    wholes_tseries: Dict[str, pd.DataFrame] = {}
+    wholes_freqs: dict[str, pd.DataFrame] = {}
+    wholes_rdfs: dict[str, pd.DataFrame] = {}
+    wholes_tseries: dict[str, pd.DataFrame] = {}
     for whole_path in whole_paths:
-        whole_info = \
-            parser(whole_path[0], 'whole', group)
-        whole_freqs, whole_rdfs, whole_tseries = whole_dist_mat_foci(
-            whole_path[0], whole_info
-        )
-        whole_name = getattr(whole_info, 'whole')
+        whole_info = parser(whole_path[0], "whole", group)
+        whole_freqs, whole_rdfs, whole_tseries = \
+            func(whole_path[0], whole_info)
+        whole_name = getattr(whole_info, "whole")
         wholes_freqs[whole_name] = whole_freqs
         wholes_rdfs[whole_name] = whole_rdfs
         wholes_tseries[whole_name] = whole_tseries
@@ -546,8 +623,8 @@ def whole_from_dist_mat_t(
 
 
 def ens_from_bin_edge(
-    ens_data: Tuple[str, Dict[str, np.ndarray]]
-) -> Tuple[str, np.ndarray]:
+    ens_data: tuple[str, dict[str, np.ndarray]],
+) -> tuple[str, np.ndarray]:
     """
     Combine multiple bin edge arrays into a single unique array for an
     'ensemble' by removing duplicates. This is typically used when bin edges
@@ -555,7 +632,7 @@ def ens_from_bin_edge(
 
     Parameters
     ----------
-    ens_data : Tuple[str, Dict[str, np.ndarray]]
+    ens_data : tuple[str, dict[str, np.ndarray]]
         A tuple where the first element is the ensemble name (str) and the
         second element is a dictionary of bin edge arrays from different
         'whole' datasets within that ensemble. Within the dictionary, keys are
@@ -563,7 +640,7 @@ def ens_from_bin_edge(
 
     Returns
     -------
-    Tuple[str, np.ndarray]
+    tuple[str, np.ndarray]
         A tuple where the first element is the ensemble name, and the second
         is a 1D numpy array of unique bin edges.
 
@@ -582,8 +659,8 @@ def ens_from_bin_edge(
 
 
 def ens_from_vec(
-    ens_data: Tuple[str, Dict[str, np.ndarray]]
-) -> Tuple[str, pd.DataFrame]:
+    ens_data: tuple[str, dict[str, np.ndarray]],
+) -> tuple[str, pd.DataFrame]:
     """
     Convert a dictionary of 1D arrays (representing different 'whole'
     datasets) into a single ensemble-level DataFrame. This is useful when each
@@ -592,14 +669,14 @@ def ens_from_vec(
 
     Parameters
     ----------
-    ens_data : Tuple[str, Dict[str, np.ndarray]]
+    ens_data : tuple[str, dict[str, np.ndarray]]
         A tuple where the first element is the ensemble name, and the second
         is a dictionary mapping each 'whole' dataset name to a 1D numpy array
         of measurements.
 
     Returns
     -------
-    Tuple[str, pd.DataFrame]
+    tuple[str, pd.DataFrame]
         A tuple where the first element is the ensemble name, and the second
         is a pandas DataFrame. Each column represents a 'whole' dataset, and
         rows contain corresponding vector values from each dataset.
@@ -619,13 +696,13 @@ def ens_from_vec(
     2     0.3     0.6
     """
     ensemble_name, whole_vectors = ens_data
-    ensemble_df = pd.DataFrame.from_dict(whole_vectors, orient='columns')
+    ensemble_df = pd.DataFrame.from_dict(whole_vectors, orient="columns")
     return ensemble_name, ensemble_df
 
 
 def ens_from_mat_t(
-    ens_data: Tuple[str, Dict[str, np.ndarray]]
-) -> Tuple[str, np.ndarray]:
+    ens_data: tuple[str, dict[str, np.ndarray]],
+) -> tuple[str, np.ndarray]:
     """
     Combine multiple 2D arrays into a single 3D array for a specified
     'ensemble', where each 2D array corresponds to a 'whole' dataset in the
@@ -633,14 +710,14 @@ def ens_from_mat_t(
 
     Parameters
     ----------
-    ens_data : Tuple[str, Dict[str, np.ndarray]]
+    ens_data : tuple[str, dict[str, np.ndarray]]
         A tuple where the first element is the ensemble name (str) and the
         second element is a dictionary with 'whole' names as keys and 2D numpy
         arrays as values.
 
     Returns
     -------
-    Tuple[str, np.ndarray]
+    tuple[str, np.ndarray]
         A tuple where the first element is the ensemble name and the second
         is a 3D numpy array formed by stacking the 2D arrays along the first
         axis.
@@ -662,8 +739,8 @@ def ens_from_mat_t(
 
 
 def ens_from_df(
-    ens_data: Tuple[str, Dict[str, pd.DataFrame]]
-) -> Tuple[str, pd.DataFrame]:
+    ens_data: tuple[str, dict[str, pd.DataFrame]],
+) -> tuple[str, pd.DataFrame]:
     """
     Average multiple DataFrames in an ensemble by grouping them into a single
     averaged DataFrame. Each DataFrame corresponds to a 'whole' dataset in the
@@ -689,14 +766,14 @@ def ens_from_df(
 
     Parameters
     ----------
-    ens_data : Tuple[str, Dict[str, pd.DataFrame]]
+    ens_data : tuple[str, dict[str, pd.DataFrame]]
         A tuple where the first element is the ensemble name and the second
         is a DataFrame containing the mean of all input DataFrames, grouped
         by index.
 
     Returns
     -------
-    Tuple[str, pd.DataFrame]
+    tuple[str, pd.DataFrame]
         A tuple with:
             - The ensemble name (str).
             - A DataFrame with the averaged values across all 'whole'
@@ -735,13 +812,13 @@ def ens_from_df(
 
 def ensemble(
     prop: PropertyT,
-    wholes: Union[Dict[str, np.ndarray], Dict[str, pd.DataFrame]],
-    parser: ParserType,
+    wholes: dict[str, np.ndarray] | dict[str, pd.DataFrame],
+    parser: ParserClassT,
     group: GroupT,
-    whole_type: Literal['vector', 'matrix', 'dataframe', 'bin_edge'],
-    whole_edges: Optional[Dict[str, np.ndarray]] = None,
-    save_to: Optional[str] = None,
-) -> Dict[str, Union[np.ndarray, pd.DataFrame]]:
+    whole_type: Literal["vector", "matrix", "dataframe", "bin_edge"],
+    whole_edges: dict[str, np.ndarray] | None = None,
+    save_to: Pathish | None = None,
+) -> dict[str, np.ndarray | pd.DataFrame]:
     """
     Generate an ensemble by  merging 'whole' data arrays or DataFrames
     representing a specified `prop_` of a particle `group` within a
@@ -753,10 +830,10 @@ def ensemble(
     prop: PropertyT
         The physical property for which the ensemble is generated (e.g.,
         'density').
-    wholes : Union[Dict[str, np.ndarray], Dict[str, pd.DataFrame]]
+    wholes : dict[str, np.ndarray] | dict[str, pd.DataFrame]
         Dictionary containing 'whole' names as keys and their corresponding
         data as values, represented as numpy arrays or DataFrames.
-    parser : ParserT
+    parser : ParserClassT
         An instance of the parser class to infer attributes like ensemble name
         from each 'whole'.
     group : GroupT
@@ -773,7 +850,7 @@ def ensemble(
         - 'bin_edge': A 1D array representing bin edges. Assumes all bin edges
           are identical and selects one to represent the ensemble.
 
-    whole_edges : Dict[str, np.ndarray], optional
+    whole_edges : dict[str, np.ndarray], optional
         Dictionary with 'whole' names as keys and bin edge arrays as values,
         useful when `whole_type` is 'vector' and bin edges are shared across
         wholes in the ensemble.
@@ -782,7 +859,7 @@ def ensemble(
 
     Returns
     -------
-    Dict[str, Union[np.ndarray, pd.DataFrame]]
+    dict[str, np.ndarray | pd.DataFrame]
         Dictionary where keys are ensemble names and values are ensemble data
         as numpy arrays or DataFrames.
 
@@ -814,21 +891,21 @@ def ensemble(
             save_to="/output/path"
         )
     """
-    invalid_keyword(whole_type, ['vector', 'matrix', 'dataframe', 'bin_edge'])
+    invalid_keyword(whole_type, ["vector", "matrix", "dataframe", "bin_edge"])
 
-    merging_func: Dict[str, Callable] = {
-        'vector': ens_from_vec,
-        'matrix': ens_from_mat_t,
-        'dataframe': ens_from_df,
-        'bin_edge': ens_from_bin_edge,
+    merging_func: dict[str, Callable] = {
+        "vector": ens_from_vec,
+        "matrix": ens_from_mat_t,
+        "dataframe": ens_from_df,
+        "bin_edge": ens_from_bin_edge,
     }
     # Collecting wholes for each ensemble
-    ens_wholes: Dict[str, Dict[str, Union[pd.DataFrame, np.ndarray]]] = {}
-    bin_centers: Dict[str, np.ndarray] = {}
+    ens_wholes: dict[str, dict[str, np.ndarray | pd.DataFrame]] = {}
+    bin_centers: dict[str, np.ndarray] = {}
     if whole_edges is not None:
         for whole_name, whole_data in wholes.items():
-            whole_info = parser(whole_name, 'whole', group)
-            ens_name = getattr(whole_info, 'ensemble_long')
+            whole_info = parser(whole_name, "whole", group)
+            ens_name = getattr(whole_info, "ensemble_long")
             if ens_name not in ens_wholes:
                 ens_wholes[ens_name] = {}
             ens_wholes[ens_name][whole_name] = whole_data
@@ -837,21 +914,22 @@ def ensemble(
             )
     else:
         for whole_name, whole_data in wholes.items():
-            whole_info = parser(whole_name, 'whole', group)
-            ens_name = getattr(whole_info, 'ensemble_long')
+            whole_info = parser(whole_name, "whole", group)
+            ens_name = getattr(whole_info, "ensemble_long")
             if ens_name not in ens_wholes:
                 ens_wholes[ens_name] = {}
             ens_wholes[ens_name][whole_name] = whole_data
 
     # Merging wholes into a single ensemble data object
-    ensembles: Dict[str, Union[np.ndarray, pd.DataFrame]] = \
-        dict(map(merging_func[whole_type], ens_wholes.items()))
+    ensembles: dict[str, np.ndarray | pd.DataFrame] = dict(
+        map(merging_func[whole_type], ens_wholes.items())
+    )
 
     # Save ensemble data object if save_to is specified
     if save_to:
         for ens_name, data in ensembles.items():
             ens_fullname = create_fullname(ens_name, group, prop)
-            save_parent(ens_fullname, data, save_to)
+            save_artifact(ens_fullname, data, save_to)
 
     return ensembles
 
@@ -864,7 +942,7 @@ def ens_avg_from_bin_edge(ens_data: np.ndarray) -> np.ndarray:
 
     Parameters
     ----------
-    ens_data : List[np.ndarray]
+    ens_data : list[np.ndarray]
         A 1D array of bin edges across multiple wholes in the ensemble. The
         function assumes these bin edges are identical across all wholes.
 
@@ -890,9 +968,8 @@ def ens_avg_from_bin_edge(ens_data: np.ndarray) -> np.ndarray:
 
 
 def ens_avg_from_ndarray(
-    ens_prop: PropertyT,
-    ens_data: np.ndarray
-) -> Dict[str, np.ndarray]:
+    ens_prop: PropertyT, ens_data: np.ndarray
+) -> dict[str, np.ndarray]:
     """
     Compute ensemble statistics (mean, variance, and standard error of the
     mean)across an 'ensemble' 3D array where each slice along the first axis
@@ -910,7 +987,7 @@ def ens_avg_from_ndarray(
 
     Returns
     -------
-    Dict[str, np.ndarray]
+    dict[str, np.ndarray]
         A dictionary where keys are statistical measures (mean, variance, SEM)
         with `ens_prop` as a prefix while values are numpy arrays of the
         computed statistics across 'whole' matrices.
@@ -944,15 +1021,13 @@ def ens_avg_from_ndarray(
     ens_avg = {
         f"{ens_prop}-mean": np.mean(ens_data, axis=0),
         f"{ens_prop}-var": np.var(ens_data, axis=0, ddof=1),
-        f"{ens_prop}-sem": np.std(ens_data, axis=0, ddof=1) / n_wholes_sqrt
+        f"{ens_prop}-sem": np.std(ens_data, axis=0, ddof=1) / n_wholes_sqrt,
     }
     return ens_avg
 
 
 def ens_avg_from_df(
-    ens_prop: PropertyT,
-    ens_data: pd.DataFrame,
-    exclude: List[str]
+    ens_prop: PropertyT, ens_data: pd.DataFrame, exclude: list[str]
 ) -> pd.DataFrame:
     """
     Calculate the mean, variance, and standard error of the mean (SEM) for
@@ -1003,9 +1078,9 @@ def ens_avg_from_df(
     """
     wholes = [col for col in ens_data.columns if col not in exclude]
 
-    ens_data[ens_prop + '-mean'] = ens_data[wholes].mean(axis=1)
-    ens_data[ens_prop + '-var'] = ens_data[wholes].var(axis=1, ddof=1)
-    ens_data[ens_prop + '-sem'] = ens_data[wholes].sem(axis=1, ddof=1)
+    ens_data[ens_prop + "-mean"] = ens_data[wholes].mean(axis=1)
+    ens_data[ens_prop + "-var"] = ens_data[wholes].var(axis=1, ddof=1)
+    ens_data[ens_prop + "-sem"] = ens_data[wholes].sem(axis=1, ddof=1)
 
     ens_data.drop(columns=wholes, inplace=True)
     return ens_data
@@ -1013,12 +1088,12 @@ def ens_avg_from_df(
 
 def ensemble_avg(
     prop: PropertyT,
-    ensembles: Union[Dict[str, np.ndarray], Dict[str, pd.DataFrame]],
+    ensembles: dict[str, np.ndarray | pd.DataFrame],
     group: GroupT,
-    ens_type: Literal['dataframe', 'ndarray', 'bin_edge'],
-    exclude: Optional[List[str]] = None,
-    save_to: Optional[str] = None,
-) -> Union[Dict[str, np.ndarray], Dict[str, pd.DataFrame]]:
+    ens_type: Literal["dataframe", "ndarray", "bin_edge"],
+    exclude: list[str] | None = None,
+    save_to: Pathish | None = None,
+) -> dict[str, np.ndarray] | dict[str, pd.DataFrame]:
     """
     Generate ensemble-averaged data for a specified `prop_` by averaging
     'whole' data in each 'ensemble' DataFrame or array within `ensembles`.
@@ -1028,7 +1103,7 @@ def ensemble_avg(
     ----------
     prop: PropertyT
         The physical property for which ensemble averages are calculated.
-    ensembles : Union[Dict[str, np.ndarray], Dict[str, pd.DataFrame]]
+    ensembles : dict[str, np.ndarray | pd.DataFrame]
         A dictionary where each key is an ensemble name and each value is
         either a DataFrame or ndarray representing 'whole' data.
     group : GroupT
@@ -1043,7 +1118,7 @@ def ensemble_avg(
         - 'bin_edge': 1D ndarray format for bin edges, with bin edges assumed
           to be identical across wholes.
 
-    exclude : List[str], default None
+    exclude : list[str], default None
         List of column names or items not included in ensemble averaging,
         such as 'bin_center' for histograms.
     save_to : str, optional
@@ -1051,7 +1126,7 @@ def ensemble_avg(
 
     Returns
     -------
-    Union[Dict[str, np.ndarray], Dict[str, pd.DataFrame]]
+    dict[str, np.ndarray] | dict[str, pd.DataFrame]
         A dictionary where each key is an ensemble name, and each value is a
         DataFrame or ndarray of ensemble-averaged data.
 
@@ -1078,39 +1153,39 @@ def ensemble_avg(
         )
     """
     if exclude is None:
-        exclude = ['bin_center']
+        exclude = ["bin_center"]
 
     # Compute ensemble averages
-    ens_avgs: Union[Dict[str, np.ndarray], Dict[str, pd.DataFrame]] = {}
-    if ens_type == 'bin_edge':
+    ens_avgs: dict[str, np.ndarray] | dict[str, pd.DataFrame] = {}
+    if ens_type == "bin_edge":
         for ens_name, ens_data in ensembles.items():
             ens_avg = ens_avg_from_bin_edge(ens_data)  # type: ignore
             ens_avgs[ens_name] = ens_avg  # type: ignore
-    elif ens_type == 'ndarray':
+    elif ens_type == "ndarray":
         for ens_name, ens_data in ensembles.items():
             ens_avg = ens_avg_from_ndarray(prop, ens_data)  # type: ignore
             ens_avgs[ens_name] = ens_avg  # type: ignore
-    elif ens_type == 'dataframe':
+    elif ens_type == "dataframe":
         for ens_name, ens_data in ensembles.items():
             ens_avg = ens_avg_from_df(prop, ens_data, exclude)  # type: ignore
             ens_avgs[ens_name] = ens_avg  # type: ignore
     else:
-        invalid_keyword(ens_type, ['dataframe', 'ndarray', 'bin_edge'])
+        invalid_keyword(ens_type, ["dataframe", "ndarray", "bin_edge"])
 
     # Save averaged ensemble data if save_to path is provided
     if save_to is not None:
-        save_property = prop + '-ensAvg'
+        save_property = prop + "-ensAvg"
         for ens_name, data in ens_avgs.items():
             ens_fullname = create_fullname(ens_name, group, save_property)
-            save_parent(ens_fullname, data, save_to)
+            save_artifact(ens_fullname, data, save_to)
 
     return ens_avgs
 
 
 def children_stamps(
-    stamps: List[Tuple[str]],
+    stamps: list[tuple[str]],
     lineage: PrimitiveLineageT,
-    save_to: Optional[str] = None
+    save_to: Pathish | None = None,
 ) -> pd.DataFrame:
     """
     Combine individual 'stamp' CSV files into a single DataFrame for a given
@@ -1119,7 +1194,7 @@ def children_stamps(
 
     Parameters
     ----------
-    stamps : List[Tuple[str]]
+    stamps : list[tuple[str]]
         List of tuples where each tuple contains a single file path to a
         'stamp' CSV file.
     lineage : {'segment', 'whole'}
@@ -1149,30 +1224,31 @@ def children_stamps(
     >>> stamps = [('path/to/stamp1.csv',), ('path/to/stamp2.csv',)]
     >>> df = children_stamps(stamps, lineage='whole')
     """
-    invalid_keyword(lineage, ['segment', 'whole'])
+    invalid_keyword(lineage, ["segment", "whole"])
 
     # Load and concatenate all stamps
-    space_stamps = pd.concat([pd.read_csv(stamp[0]) for stamp in stamps],
-                             ignore_index=True)
+    space_stamps = pd.concat(
+        [pd.read_csv(stamp[0]) for stamp in stamps], ignore_index=True
+    )
 
     # Drop specific columns for 'whole' lineage
-    cols_to_drop = ['segment', 'segment_id']
-    if lineage == 'whole':
+    cols_to_drop = ["segment", "segment_id"]
+    if lineage == "whole":
         try:
             space_stamps.drop(columns=cols_to_drop, inplace=True)
             warnings.warn(
                 "'segment' and 'segment_id' columns are dropped when"
                 " individual 'whole' stamps combined to create a single"
                 " dataframe of 'whole' stamps by 'children_stamps'.",
-                UserWarning
+                UserWarning,
             )
         except KeyError:
             print(f"'{cols_to_drop}' are not among columns.")
 
     # Save the resulting DataFrame to a CSV if specified
     if save_to is not None:
-        space_name = str(space_stamps.loc[0, 'space'])
-        group = str(space_stamps.loc[0, 'group'])
+        space_name = str(space_stamps.loc[0, "space"])
+        group = str(space_stamps.loc[0, "group"])
         filename = f"{space_name}-{group}-{lineage}-stamps.csv"
         space_stamps.to_csv(os.path.join(save_to, filename), index=False)
 
@@ -1182,8 +1258,8 @@ def children_stamps(
 def parents_stamps(
     stamps: pd.DataFrame,
     lineage: PrimitiveLineageT,
-    properties: Optional[Dict[str, Callable]] = None,
-    save_to: Optional[str] = None
+    properties: dict[str, Callable] | None = None,
+    save_to: Pathish | None = None,
 ) -> pd.DataFrame:
     """
     Aggregate data from child 'stamps' into a parent stamp by applying
@@ -1226,12 +1302,12 @@ def parents_stamps(
     >>> parent_df = parents_stamps(df, group='bug',
                                    lineage='segment')
     """
-    invalid_keyword(lineage, ['segment', 'whole'])
+    invalid_keyword(lineage, ["segment", "whole"])
 
     # Base aggregation functions for columns
     base_columns = list(stamps.columns)
     try:
-        base_columns.remove('lineage_name')
+        base_columns.remove("lineage_name")
         base_columns.remove(lineage)
     except ValueError:
         print(
@@ -1240,27 +1316,29 @@ def parents_stamps(
             f"'{base_columns}', they are probably removed in"
             " a previous call of 'parents_stamps' function."
         )
-    agg_funcs: Dict[str, Union[str, Callable]] = \
-        {col: 'last' for col in base_columns}
+    agg_funcs: dict[str, str | Callable] = {
+        col: "last" for col in base_columns
+    }
     if properties is not None:
         agg_funcs.update(properties)
 
     # Define grouping column and lineage-specific aggregations
-    if lineage == 'whole':
-        parent_groupby = 'ensemble_long'
-        agg_funcs.update({'ensemble_id': 'count', 'n_frames': 'last'})
+    if lineage == "whole":
+        parent_groupby = "ensemble_long"
+        agg_funcs.update({"ensemble_id": "count", "n_frames": "last"})
     else:
-        parent_groupby = 'whole'
-        agg_funcs.update({'segment_id': 'count', 'n_frames': 'sum'})
+        parent_groupby = "whole"
+        agg_funcs.update({"segment_id": "count", "n_frames": "sum"})
 
     # Perform the groupby and aggregate
     agg_funcs.pop(parent_groupby)
     parent_stamps = stamps.groupby(parent_groupby).agg(agg_funcs).reset_index()
 
     # Rename and drop columns based on lineage
-    if lineage == 'whole':
-        parent_stamps.rename(columns={'ensemble_id': 'n_ensembles'},
-                             inplace=True)
+    if lineage == "whole":
+        parent_stamps.rename(
+            columns={"ensemble_id": "n_ensembles"}, inplace=True
+        )
         # If the 'whole' stamps are generated directly in the 'probe' phase,
         # then 'segment' and 'segment_id' columns are "N/A" and are removed
         # from the list of stamps columns that are added to the parents
@@ -1270,16 +1348,20 @@ def parents_stamps(
         # in the 'probe' phase do not have such a column, but those generated
         # from 'segment' stamps have.
         # Dropping redundant columns silently:
-        parent_stamps.drop(columns=['n_segments', 'segment_id', 'segment'],
-                           inplace=True, errors='ignore')
+        parent_stamps.drop(
+            columns=["n_segments", "segment_id", "segment"],
+            inplace=True,
+            errors="ignore",
+        )
     else:
-        parent_stamps.rename(columns={'segment_id': 'n_segments'},
-                             inplace=True)
+        parent_stamps.rename(
+            columns={"segment_id": "n_segments"}, inplace=True
+        )
 
     if save_to is not None:
-        space_name = str(parent_stamps.loc[0, 'space'])
-        group = str(parent_stamps.loc[0, 'group'])
-        file_suffix = 'ensAvg' if lineage == 'whole' else 'whole'
+        space_name = str(parent_stamps.loc[0, "space"])
+        group = str(parent_stamps.loc[0, "group"])
+        file_suffix = "ensAvg" if lineage == "whole" else "whole"
         filename = f"{space_name}-{group}-stamps-{file_suffix}.csv"
         parent_stamps.to_csv(os.path.join(save_to, filename), index=False)
 
@@ -1289,10 +1371,10 @@ def parents_stamps(
 def find_unique_properties(
     filepath: str,
     prop_idx: int,
-    extensions: List[str],
-    drop_properties: Optional[List[str]] = None,
-    sep: str = '-'
-) -> Tuple[List[str], List[str]]:
+    extensions: list[str],
+    drop_properties: list[str] | None = None,
+    sep: str = "-",
+) -> tuple[list[str], list[str]]:
     """
     Extract unique physical properties and property-measures from filenames
     matched by a glob pattern. The function identifies unique segments in
@@ -1307,11 +1389,11 @@ def find_unique_properties(
     prop_idx : int
         The index position in the filename where the property or
         property-measure name starts after splitting by the separator.
-    extensions : List[str]
+    extensions : list[str]
         A list of suffixes that indicate the end of a property or
         property-measure name (e.g., `'-ensAvg'`, `'-ens'`, `'-whole'`). These
         are not file extensions like `".csv"` or `".npy"`.
-    drop_properties : Optional[List[str]], default None
+    drop_properties : list[str] | None, default None
         A list of property names to ignore when determining unique properties
         and property-measures.
     sep : str, default '-'
@@ -1319,11 +1401,11 @@ def find_unique_properties(
 
     Returns
     -------
-    Tuple[List[str], List[str]]
+    tuple[list[str], list[str]]
         A tuple containing:
-        - **uniq_props** (*List[str]*): A sorted list of unique physical
+        - **uniq_props** (*list[str]*): A sorted list of unique physical
           properties.
-        - **uniq_prop_measures** (*List[str]*): A sorted list of unique
+        - **uniq_prop_measures** (*list[str]*): A sorted list of unique
           property-measures.
 
     Examples
@@ -1351,9 +1433,9 @@ def find_unique_properties(
     uniq_prop_measures = set()
     for ext in extensions:
         for prop in props_measures:
-            prop_name = \
-                sep.join(
-                    prop.split("/")[-1].split(ext)[0].split(sep)[prop_idx:])
+            prop_name = sep.join(
+                prop.split("/")[-1].split(ext)[0].split(sep)[prop_idx:]
+            )
             uniq_prop_measures.add(prop_name)
 
     if drop_properties is not None:
@@ -1374,14 +1456,14 @@ def find_unique_properties(
 def space_tseries(
     input_database: str,
     prop: PropertyT,
-    parser: ParserType,
+    parser: ParserClassT,
     hierarchy: str,
-    physical_attrs: List[str],
+    physical_attrs: list[str],
     group: GroupT,
     dump_key: str,
     divisor: float = 0.025,
     round_to: int = 3,
-    is_save: Optional[bool] = False,
+    is_save: bool | None = False,
 ) -> pd.DataFrame:
     """
     Aggregate ensemble-averaged time-series data for a specified physical
@@ -1394,12 +1476,12 @@ def space_tseries(
         Path to the directory containing time-series data files.
     prop : str
         Name of the physical property of interest.
-    parser : ParserT
+    parser : ParserClassT
         Parser class to infer file-specific information from filenames or
         paths.
     hierarchy : str
         Pattern prefix for the time-series filenames (e.g., `"N*"`).
-    physical_attrs : List[str]
+    physical_attrs : list[str]
         List of physical attributes to add as new columns in the output
         DataFrame.
     group : GroupT
@@ -1436,27 +1518,27 @@ def space_tseries(
     """
     prop_ext = f"-{prop}-ensAvg.csv"
     ens_avg_csvs = sort_filenames(
-        glob(input_database + hierarchy + prop_ext), [prop_ext])
+        glob(input_database + hierarchy + prop_ext), [prop_ext]
+    )
     prop_csvs = []
 
     for ens_avg_csv in ens_avg_csvs:
         ens_avg = pd.read_csv(ens_avg_csv[0], header=0)
-        prop_info = parser(ens_avg_csv[0], 'ensemble_long', group)
+        prop_info = parser(ens_avg_csv[0], "ensemble_long", group)
 
         ens_avg.reset_index(inplace=True)
-        ens_avg.rename(columns={'index': 't_index'}, inplace=True)
+        ens_avg.rename(columns={"index": "t_index"}, inplace=True)
 
         # Calculate `t_index` and `time` columns based on `dumping_freq`
-        ens_avg['t_index'] *= getattr(prop_info, dump_key)
-        ens_avg['time'] = ens_avg['t_index'] * getattr(prop_info, 'dt')
+        ens_avg["t_index"] *= getattr(prop_info, dump_key)
+        ens_avg["time"] = ens_avg["t_index"] * getattr(prop_info, "dt")
 
         # Add physical attributes
         for attr_name in physical_attrs:
             ens_avg[attr_name] = getattr(prop_info, attr_name)
 
         # Apply rounding to `phi_c_bulk`
-        ens_avg['phi_c_bulk_round'] = \
-            ens_avg['phi_c_bulk'].apply(
+        ens_avg["phi_c_bulk_round"] = ens_avg["phi_c_bulk"].apply(
             lambda x: round_up_nearest(x, divisor, round_to)
         )
 
@@ -1469,10 +1551,12 @@ def space_tseries(
     # Optionally save to file
     if is_save:
         save_to_space = make_database(
-            input_database, 'analysis', stage='space', group=group)
-        space = save_to_space.split("/")[-2].split('-')[0]
-        filepath = \
+            input_database, "analysis", stage="space", group=group
+        )
+        space = save_to_space.split("/")[-2].split("-")[0]
+        filepath = (
             save_to_space + f"{create_fullname(space, group, prop)}-space.csv"
+        )
         prop_db.to_csv(filepath, index=False)
 
     return prop_db
@@ -1481,15 +1565,15 @@ def space_tseries(
 def space_hists(
     input_database: str,
     prop: PropertyT,
-    parser: ParserType,
+    parser: ParserClassT,
     hierarchy: str,
-    physical_attrs: List[str],
+    physical_attrs: list[str],
     group: GroupT,
-    bin_center: Optional[np.ndarray] = None,
-    normalize: Optional[bool] = False,
+    bin_center: np.ndarray | None = None,
+    normalize: bool | None = False,
     divisor: float = 0.025,
     round_to: int = 3,
-    is_save: Optional[bool] = False,
+    is_save: bool | None = False,
 ) -> pd.DataFrame:
     """
     Aggregate ensemble-averaged histogram data for a specified physical
@@ -1502,12 +1586,12 @@ def space_hists(
         Path to the directory containing histogram data files.
     prop: str
         Name of the physical property of interest.
-    parser : ParserT
+    parser : ParserClassT
         Parser class to infer file-specific information from filenames or
         paths.
     hierarchy : str
         Pattern prefix for the histogram filenames (e.g., `"N*"`).
-    physical_attrs : List[str]
+    physical_attrs : list[str]
         List of physical attributes to add as new columns in the output
         DataFrame.
     group : GroupT
@@ -1553,32 +1637,33 @@ def space_hists(
 
     for ens_avg_csv in ens_avg_csvs:
         ens_avg = pd.read_csv(ens_avg_csv[0], header=0)
-        prop_info = parser(ens_avg_csv[0], 'ensemble_long', group)
+        prop_info = parser(ens_avg_csv[0], "ensemble_long", group)
 
         # Handle bin_center if provided
         if bin_center is not None:
-            ens_avg['bin_center'] = bin_center.tolist()
-            ens_avg['bin_center-norm'] = \
-                ens_avg['bin_center'] / ens_avg['bin_center'].max()
+            ens_avg["bin_center"] = bin_center.tolist()
+            ens_avg["bin_center-norm"] = (
+                ens_avg["bin_center"] / ens_avg["bin_center"].max()
+            )
 
         # Normalize data if specified
         if normalize:
-            normalizer = ens_avg[prop + '-mean'].sum()
+            normalizer = ens_avg[prop + "-mean"].sum()
             if normalizer != 0:
-                ens_avg[prop + '-norm'] = \
-                    ens_avg[prop + '-mean'] / normalizer
+                ens_avg[prop + "-norm"] = ens_avg[prop + "-mean"] / normalizer
             else:
                 warnings.warn(
                     "All values are zero; normalized values set to zero.",
-                    UserWarning)
-                ens_avg[prop + '-norm'] = 0
+                    UserWarning,
+                )
+                ens_avg[prop + "-norm"] = 0
 
         # Add physical attributes
         for attr_name in physical_attrs:
             ens_avg[attr_name] = getattr(prop_info, attr_name)
 
         # Apply rounding to `phi_c_bulk`
-        ens_avg['phi_c_bulk_round'] = ens_avg['phi_c_bulk'].apply(
+        ens_avg["phi_c_bulk_round"] = ens_avg["phi_c_bulk"].apply(
             lambda x: round_up_nearest(x, divisor, round_to)
         )
 
@@ -1591,10 +1676,12 @@ def space_hists(
     # Optionally save to file
     if is_save:
         save_to_space = make_database(
-            input_database, 'analysis', stage='space', group=group)
-        space = save_to_space.split("/")[-2].split('-')[0]
-        filepath = \
+            input_database, "analysis", stage="space", group=group
+        )
+        space = save_to_space.split("/")[-2].split("-")[0]
+        filepath = (
             save_to_space + f"{create_fullname(space, group, prop)}-space.csv"
+        )
         prop_db.to_csv(filepath, index=False)
 
     return prop_db

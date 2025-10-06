@@ -13,12 +13,11 @@
         "Topic :: Scientific/Engineering :: Physics",
         "Topic :: Scientific/Engineering :: Chemistry",
         "Operating System :: OS Independent",
-        "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12"
     ]
     dynamic = ["version"]
-    requires-python = ">=3.10"
+    requires-python = ">=3.11"
     dependencies = [
         "numpy",
         "pandas",

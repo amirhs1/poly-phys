@@ -374,7 +374,10 @@ def fsd(positions: np.ndarray, axis: AxisT) -> float:
     return np.ptp(positions[:, axis])
 
 
-def simple_stats(entity: EntityT, data: np.ndarray) -> Dict[PropertyT, float]:
+def simple_stats(
+        entity: EntityT,
+        data: np.ndarray
+) -> Dict[PropertyT, float | np.floating]:
     """
     Compute basic statistics (mean, variance, SEM) for for a physical `entity`.
 
@@ -710,6 +713,12 @@ def fixedsize_bins(
     _length = lmax - lmin
     _delta = bin_size
 
+    # Initialize the adjusted limits and bin edges:
+    lmin_adj = lmin
+    lmax_adj = lmax
+    n_bins = 0  # Statistically invalid
+    bin_edges = np.array([])  # Statistically invalid
+
     if bin_type == 'ordinary':
         n_bins = int(np.ceil(_length / _delta))
         dl = 0.5 * (n_bins * _delta - _length)  # excess length
@@ -735,6 +744,10 @@ def fixedsize_bins(
             warnings.warn("'n_bins' is set to 'len(bin_edges)-1'", UserWarning)
     else:
         invalid_keyword(bin_type, ['ordinary', 'nonnegative', 'periodic'])
+
+    if n_bins == 0 or len(bin_edges) == 0:
+        raise ValueError("Invalid bin settings: n_bins must be > 0 and "
+                         "bin_edges must not be empty.")
 
     collectors = np.zeros(n_bins, dtype=np.int16)
     collectors_std = np.zeros(n_bins, dtype=np.int16)

@@ -19,18 +19,26 @@ This module also defines type aliases for input sources and simulation
 metadata.
 """
 from typing import (
-    Union, Tuple, Dict, List, TextIO, IO, Any, Literal, TYPE_CHECKING,
-    Type
+    TextIO, IO, Any, Literal, TYPE_CHECKING, TypeVar, TypeAlias, Iterable,
+    Sequence
     )
 from gzip import GzipFile
+from os import PathLike
 import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
     from .parser import ParserBase
 
-ParserType = Type["ParserBase"]
+ParserInstanceT = TypeVar("ParserInstanceT", bound="ParserBase")  # instance
+ParserClassT: TypeAlias = type[ParserInstanceT]  # class constructor
 
+
+Pathish = str | PathLike[str]
+PathIter = Iterable[Pathish]
+PathGroup = Sequence[Pathish]            # e.g., tuple[Path, ...]
+PathGroupIter = Iterable[PathGroup]      # e.g., list[tuple[Path, ...]]
+AnyPathIter = PathIter | PathGroupIter   # union for user-facing APIs
 
 # --- Basic Type Aliases ---
 AxisT = Literal[0, 1, 2]
@@ -43,9 +51,8 @@ GroupT = str
 HasEdgeT = bool
 LineageT = Literal['segment', 'whole', 'ensemble_long', 'ensemble', 'space']
 WholeRelationT = Literal['histogram', 'tseries', 'bin_edge']
-PhaseT = str
-# PhaseT = Literal['simAll', 'simCont', 'log', 'trj', 'probe', 'analysis',
-#                 'viz', 'galaxy']
+PhaseT = Literal['simAll', 'simCont', 'log', 'trj', 'probe', 'analysis',
+                 'viz', 'galaxy']
 PlaneT = Literal['xy', 'yz', 'zx']
 PrimitiveLineageT = Literal['segment', 'whole']
 PropertyT = str
@@ -53,19 +60,17 @@ StageT = Literal['segment', 'wholeSim', 'ens', 'ensAvg', 'space', 'galaxy']
 TopologyT = str
 WholeName = str
 
-
 # --- Composite Data Structures ---
-EdgeDataT = Dict[str, np.ndarray]
-EdgeT = Tuple[DirectionT, GroupT]
-EnsembleT = Tuple[EnsembleName, Union[np.ndarray, pd.DataFrame]]
-FreqDataT = Dict[str, np.ndarray]
-HistogramT = Tuple[DirectionT, EntityT, GroupT]
-HnsStatDictT = Dict[str, Union[List[int], np.ndarray]]
-NonScalarHistT = Tuple[PropertyT, EntityT, GroupT, AxisT]
-NonScalarMatT = Tuple[PropertyT, EntityT, GroupT]
-TimeSeriesT = Tuple[PropertyT, EntityT, GroupT]
-WholeT = Dict[WholeName, Union[np.ndarray, pd.DataFrame]]
-
+EdgeDataT = dict[str, np.ndarray]
+EdgeT = tuple[DirectionT, GroupT]
+EnsembleT = tuple[EnsembleName, np.ndarray | pd.DataFrame]
+FreqDataT = dict[str, np.ndarray]
+HistogramT = tuple[DirectionT, EntityT, GroupT]
+HnsStatdictT = dict[str, list[int] | np.ndarray]
+NonScalarHistT = tuple[PropertyT, EntityT, GroupT, AxisT]
+NonScalarMatT = tuple[PropertyT, EntityT, GroupT]
+TimeSeriesT = tuple[PropertyT, EntityT, GroupT]
+WholeT = dict[WholeName, np.ndarray | pd.DataFrame]
 
 # --- IO Types ---
-InputType = Union[GzipFile, TextIO, IO[Any]]
+InputType = GzipFile | TextIO | IO[Any]

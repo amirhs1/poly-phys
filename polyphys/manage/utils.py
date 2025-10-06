@@ -29,12 +29,15 @@ Dependencies
 See also: :mod:`~polyphys.manage.types` for the definition of
 :data:`InputType`.
 """
+
 import re
+from pathlib import Path
 import gzip
 from typing import Generator, Optional, List, Union, Tuple, Sequence
+import warnings
 from contextlib import contextmanager
 import numpy as np
-from .types import InputType
+from .types import InputType, PathIter
 
 
 def read_camel_case(string: str) -> List[Union[str, Tuple[str]]]:
@@ -118,13 +121,201 @@ def split_alphanumeric(alphanumeric: str) -> List[Union[int, str, float]]:
     """
     number_pattern = re.compile(r"(\d+\.*\d*)")
     parts = number_pattern.split(alphanumeric)
-    return [int(part) if part.isdigit() else
-            to_float_if_possible(part) for part in parts if part]
+    return [
+        int(part) if part.isdigit() else to_float_if_possible(part)
+        for part in parts
+        if part
+    ]
+
+
+def _normalize_exts(exts: Union[str, Tuple[str, ...]]) -> Tuple[str, ...]:
+    """
+    Normalize a format specifier into a tuple of extensions.
+
+    Ensures each extension starts with a leading dot ('.').
+    A single extension (with or without a dot) is converted to a
+    1-tuple; a tuple is normalized element-wise.
+
+    Parameters
+    ----------
+    exts : str or tuple of str
+        Extension specifier. Can be:
+        - A string representing a single extension (e.g., ``"npy"`` or
+        ``".npy"``).
+        - A tuple of equivalent extensions (e.g., ``("trj", "lammpstrj")``).
+
+    Returns
+    -------
+    tuple of str
+        Normalized tuple of extensions, all dot-prefixed.
+
+    Examples
+    --------
+    >>> _normalize_exts("npy")
+    ('.npy',)
+    >>> _normalize_exts(("trj", ".lammpstrj"))
+    ('.trj', '.lammpstrj')
+    """
+    if isinstance(exts, str):
+        exts = (exts,)
+    return tuple(e if e.startswith(".") else f".{e}" for e in exts)
 
 
 def sort_filenames(
-    filenames: List[str],
-    formats: List[Union[str, Tuple[str, ...]]]
+    filenames: PathIter,
+    formats: Sequence[Union[str, Tuple[str, ...]]],
+) -> List[Tuple[Path, ...]]:
+    """
+    Group and alphanumerically sort `filenames` by basename across `formats`.
+
+    Files are paired by the same basename (stem) such that each tuple contains
+    exactly one file for each format group. A format group may list multiple,
+    equivalent extensions, e.g. ``("trj", "lammpstrj")``. Only complete
+    basenames (with all slots present) are returned.
+
+    Parameters
+    ----------
+    filenames : sequence of path-like or str
+        Filenames/paths to sort and group.
+    formats : sequence of str or tuple of str
+        Each entry specifies one output slot. It can be a single extension
+        (e.g. ``"data"``) or a tuple of equivalent extensions
+        (e.g. ``("trj", "lammpstrj")``). Extensions are matched exactly
+        (except a leading dot is added if missing).
+
+    Returns
+    -------
+    list of tuple of Path
+        List of tuples, one per matched basename, ordered by natural
+        (alphanumeric) sort of the basename. Each tuple has length
+        ``len(formats)`` and contains `Path` objects in the same order
+        as `formats`.
+
+    Notes
+    -----
+    - **Case sensitivity:** extension matching is exact and case-sensitive.
+      For example, ``".data"`` ≠ ``".DATA"``. If you want case-insensitive
+      behavior, normalize your inputs beforehand.
+    - **Slot order preserved:** the files in each returned tuple **follow the
+      order of `formats`**. For example, with
+      ``formats = ['data', 'trj', 'npy']`` the tuple is
+      ``(file.data, file.trj, file.npy)``.
+    - **Compound extensions:** ``".tar.gz"`` is **different** from ``".gz"``.
+      They are only treated as equivalent if you explicitly group them in
+      the same slot, e.g. ``('tar.gz', 'gz')``.
+    - If any format group matches no files, the returned list may be empty.
+      This is because Python's built-in `zip()` truncates to the
+      shortest input sequence. It is the caller's responsibility to ensure
+      that each format group matches at least one file.
+    - Incomplete basenames are **ignored** and a warning is emitted for each
+      present file mentioning its missing counterpart(s).
+    - Grouping is by **basename** (stem); directory paths are not used.
+
+    Raises
+    ------
+    ValueError
+        If an extension is assigned to multiple format groups, if a file’s
+        name matches multiple groups (e.g., both ``.gz`` and ``.tar.gz``
+        present in different groups and the file ends with ``.tar.gz``), or if
+        there are duplicate files for the same basename and format slot.
+
+    Examples
+    --------
+    >>> sort_filenames(['file1.data', 'file2.trj', 'file1.trj', 'file2.data'],
+    ... ['data', ('lammpstrj', 'trj')])
+    sort_filenames(['file1.data', 'file1.trj, 'file2.data'],
+    ... ['data', ('lammpstrj', 'trj')])
+
+    >>> sort_filenames(['file1.data', 'file1.trj, 'file2.data'],
+    ... ['data', ('lammpstrj', 'trj')])
+    [(PosixPath('file1.data'), PosixPath('file1.trj'))]
+
+    >>> sort_filenames(['file1.data', 'file2.data'], ['data', ('trj',)])
+    ... []
+    """
+    # Normalize inputs
+    paths = [Path(p) for p in filenames]
+    norm_formats: List[Tuple[str, ...]] = \
+        [_normalize_exts(spec) for spec in formats]
+
+    # Build extension → slot map once; validate no overlaps across slots
+    ext_to_slot: dict[str, int] = {}
+    for i, exts in enumerate(norm_formats):
+        for e in exts:
+            prev = ext_to_slot.get(e)
+            if prev is not None and prev != i:
+                raise ValueError(
+                    f"Extension '{e}' appears in multiple format groups: "
+                    f"{norm_formats[prev]} and {norm_formats[i]}"
+                )
+            ext_to_slot[e] = i
+
+    # basename -> {slot_index -> Path}
+    by_base: dict[str, dict[int, Path]] = {}
+
+    for p in paths:
+        name = p.name  # case-sensitive
+        # Collect all matching (ext, slot)
+        matches = [(e, s) for e, s in ext_to_slot.items() if name.endswith(e)]
+        if not matches:
+            continue
+        # Longest-suffix-wins disambiguation
+        max_len = max(len(ext) for ext, _ in matches)
+        longest = [(ext, slot) for ext, slot in matches if len(ext) == max_len]
+        if len({slot for _, slot in longest}) > 1:
+            # Two different slots have equally long matches → ambiguous
+            raise ValueError(
+                f"Filename '{p.name}' matches multiple format groups: "
+                f"{[norm_formats[s] for s in sorted(
+                    {slot for _, slot in longest})]}"
+            )
+
+        # Single winning (ext, slot)
+        win_ext, slot = longest[0]
+
+        # Derive basename by stripping the winning extension
+        base = name[:-len(win_ext)]
+        # Normalize to stem semantics (in case there are leftover dots/dirs)
+        base = Path(base).stem
+
+        slot_map = by_base.setdefault(base, {})
+        if slot in slot_map:
+            raise ValueError(
+                f"Duplicate files for basename '{base}' in slot {slot} "
+                f"{norm_formats[slot]}: '{slot_map[slot].name}' and '{p.name}'"
+            )
+        slot_map[slot] = p
+
+    # Identify complete basenames (all slots present)
+    nslots = len(norm_formats)
+    comp_bases = \
+        [base for base, slots in by_base.items() if len(slots) == nslots]
+
+    # Warn about incomplete basenames and ignore them
+    for base, slots in by_base.items():
+        if base in comp_bases:
+            continue
+        missing_slot_idxs = [i for i in range(nslots) if i not in slots]
+        for present_path in slots.values():
+            for miss_idx in missing_slot_idxs:
+                want_ext = norm_formats[miss_idx][0]
+                warnings.warn(
+                    f"'{present_path.name}' does not have matching "
+                    f"'{base}{want_ext}' so it is ignored",
+                    UserWarning,
+                )
+
+    # Natural (alphanumeric) sort by basename
+    comp_bases.sort(key=split_alphanumeric)
+    # Build result tuples in the order of `formats`
+    result: List[Tuple[Path, ...]] = [
+        tuple(by_base[base][i] for i in range(nslots)) for base in comp_bases
+    ]
+    return result
+
+
+def sort_filenames_str(
+    filenames: List[str], formats: List[Union[str, Tuple[str, ...]]]
 ) -> List[Tuple[str, ...]]:
     """
     Group and alphanumerically sort `filenames` by specified formats.
@@ -180,7 +371,7 @@ def sort_filenames(
     return list(zip(*grouped_filenames))
 
 
-def openany(filepath: str, mode: str = 'rt') -> InputType:
+def openany(filepath: str, mode: str = "rt") -> InputType:
     """
     Open a regular or gzipped file.
 
@@ -202,8 +393,7 @@ def openany(filepath: str, mode: str = 'rt') -> InputType:
 
 @contextmanager
 def openany_context(
-    filepath: str,
-    mode: str = 'rt'
+    filepath: str, mode: str = "rt"
 ) -> Generator[InputType, None, None]:
     """
     Open a regular or gzipped file, providing a file-like object.
@@ -249,15 +439,11 @@ def round_down_first_non_zero(num: float) -> float:
     if num == 0:
         return num
     exponent = np.floor(np.log10(abs(num)))
-    non_zero = 10 ** exponent
-    return round(np.floor(num/non_zero)*non_zero, int(abs(exponent)))
+    non_zero = 10**exponent
+    return round(np.floor(num / non_zero) * non_zero, int(abs(exponent)))
 
 
-def round_up_nearest(
-    dividend: float,
-    divider: float,
-    round_to: int
-) -> float:
+def round_up_nearest(dividend: float, divider: float, round_to: int) -> float:
     """
     Round up `dividend` by `divider` up to `round_to` significant digits.
 
@@ -282,7 +468,7 @@ def round_up_nearest(
 def invalid_keyword(
     keyword: str,
     valid_keywords: Sequence[Optional[str]],
-    message: Optional[str] = None
+    message: Optional[str] = None,
 ) -> None:
     """
     Raise an error if `keyword` is not in `valid_keywords`.
@@ -302,8 +488,10 @@ def invalid_keyword(
         If `keyword` is not in `valid_keywords`.
     """
     if message is None:
-        message = " is an invalid option. Please select one of: " + \
-            f"{', '.join(map(str, valid_keywords))}."
+        message = (
+            " is an invalid option. Please select one of: "
+            + f"{', '.join(map(str, valid_keywords))}."
+        )
     if keyword not in valid_keywords:
         raise ValueError(f"'{keyword}'" + message)
 
