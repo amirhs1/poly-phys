@@ -5,8 +5,8 @@
 ## Checks
 
 - [ ] `flake8 polyphys`
-- [ ] `mypy polyphys`
-- [ ] `pytest polyphys/tests polyphys --cov=polyphys --cov-report=term-missing --doctest-modules --doctest-glob="README.md"`
+- [ ] `mypy polyphys/analyze polyphys/manage`
+- [ ] `pytest polyphys --cov=polyphys --cov-report=term-missing --doctest-modules --doctest-glob="README.md"`
 - [ ] `python -m build` if packaging metadata, package data, or package layout changed
 - [ ] Docs build if `docs/source/` changed
 

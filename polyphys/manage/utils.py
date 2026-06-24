@@ -128,7 +128,7 @@ def split_alphanumeric(alphanumeric: str) -> List[Union[int, str, float]]:
     ]
 
 
-def _normalize_exts(exts: Union[str, Tuple[str, ...]]) -> Tuple[str, ...]:
+def normalize_exts(exts: Union[str, Tuple[str, ...]]) -> Tuple[str, ...]:
     """
     Normalize a format specifier into a tuple of extensions.
 
@@ -151,14 +151,17 @@ def _normalize_exts(exts: Union[str, Tuple[str, ...]]) -> Tuple[str, ...]:
 
     Examples
     --------
-    >>> _normalize_exts("npy")
+    >>> normalize_exts("npy")
     ('.npy',)
-    >>> _normalize_exts(("trj", ".lammpstrj"))
+    >>> normalize_exts(("trj", ".lammpstrj"))
     ('.trj', '.lammpstrj')
     """
     if isinstance(exts, str):
         exts = (exts,)
     return tuple(e if e.startswith(".") else f".{e}" for e in exts)
+
+
+_normalize_exts = normalize_exts
 
 
 def sort_filenames(
@@ -236,7 +239,7 @@ def sort_filenames(
     # Normalize inputs
     paths = [Path(p) for p in filenames]
     norm_formats: List[Tuple[str, ...]] = \
-        [_normalize_exts(spec) for spec in formats]
+        [normalize_exts(spec) for spec in formats]
 
     # Build extension → slot map once; validate no overlaps across slots
     ext_to_slot: dict[str, int] = {}
@@ -264,10 +267,13 @@ def sort_filenames(
         longest = [(ext, slot) for ext, slot in matches if len(ext) == max_len]
         if len({slot for _, slot in longest}) > 1:
             # Two different slots have equally long matches → ambiguous
+            matched_groups = [
+                norm_formats[slot]
+                for slot in sorted({slot for _, slot in longest})
+            ]
             raise ValueError(
                 f"Filename '{p.name}' matches multiple format groups: "
-                f"{[norm_formats[s] for s in sorted(
-                    {slot for _, slot in longest})]}"
+                f"{matched_groups}"
             )
 
         # Single winning (ext, slot)
