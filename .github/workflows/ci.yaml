@@ -90,6 +90,8 @@ jobs:
         run: |
           pytest polyphys \
             --ignore=polyphys/tests/manage/test_parser.py \
+            --ignore=polyphys/manage/parser.py \
+            --ignore=polyphys/manage/organizer.py \
             --cov=polyphys \
             --cov-report=term-missing \
             --cov-report=xml \

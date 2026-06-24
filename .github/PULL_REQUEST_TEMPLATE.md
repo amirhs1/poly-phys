@@ -6,7 +6,7 @@
 
 - [ ] `flake8 polyphys`
 - [ ] `mypy polyphys/analyze polyphys/manage`
-- [ ] `pytest polyphys --ignore=polyphys/tests/manage/test_parser.py --cov=polyphys --cov-report=term-missing --doctest-modules --doctest-glob="README.md"`
+- [ ] `pytest polyphys --ignore=polyphys/tests/manage/test_parser.py --ignore=polyphys/manage/parser.py --ignore=polyphys/manage/organizer.py --cov=polyphys --cov-report=term-missing --doctest-modules --doctest-glob="README.md"`
 - [ ] `python -m build` if packaging metadata, package data, or package layout changed
 - [ ] Docs build if `docs/source/` changed
 

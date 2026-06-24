@@ -224,17 +224,22 @@ def sort_filenames(
 
     Examples
     --------
-    >>> sort_filenames(['file1.data', 'file2.trj', 'file1.trj', 'file2.data'],
-    ... ['data', ('lammpstrj', 'trj')])
-    sort_filenames(['file1.data', 'file1.trj, 'file2.data'],
-    ... ['data', ('lammpstrj', 'trj')])
+    >>> result = sort_filenames(
+    ...     ['file1.data', 'file2.trj', 'file1.trj', 'file2.data'],
+    ...     ['data', ('lammpstrj', 'trj')]
+    ... )
+    >>> result == [
+    ...     (PosixPath('file1.data'), PosixPath('file1.trj')),
+    ...     (PosixPath('file2.data'), PosixPath('file2.trj')),
+    ... ]
+    True
 
-    >>> sort_filenames(['file1.data', 'file1.trj, 'file2.data'],
+    >>> sort_filenames(['file1.data', 'file1.trj', 'file2.data'],
     ... ['data', ('lammpstrj', 'trj')])
     [(PosixPath('file1.data'), PosixPath('file1.trj'))]
 
     >>> sort_filenames(['file1.data', 'file2.data'], ['data', ('trj',)])
-    ... []
+    []
     """
     # Normalize inputs
     paths = [Path(p) for p in filenames]
@@ -359,11 +364,13 @@ def sort_filenames_str(
 
     Examples
     --------
-    >>> sort_filenames(['file1.data', 'file2.trj', 'file1.trj', 'file2.data'],
-    ... ['data', ('lammpstrj', 'trj')])
+    >>> sort_filenames_str(
+    ...     ['file1.data', 'file2.trj', 'file1.trj', 'file2.data'],
+    ...     ['data', ('lammpstrj', 'trj')]
+    ... )
     [('file1.data', 'file1.trj'), ('file2.data', 'file2.trj')]
 
-    >>> sort_filenames(['file1.data', 'file2.data'], ['data', ('trj',)])
+    >>> sort_filenames_str(['file1.data', 'file2.data'], ['data', ('trj',)])
     []
     """
     grouped_filenames = []
