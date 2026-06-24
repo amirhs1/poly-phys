@@ -62,6 +62,12 @@ ENV/
 .vscode/
 .idea/
 
+# Local agent state and instructions
+AGENTS.md
+CLAUDE.md
+.claude/
+.codex/
+
 # macOS
 .DS_Store
 
