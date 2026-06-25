@@ -203,7 +203,8 @@ class ParserBase(ABC):
         self,
         artifact: Pathish,
         lineage: LineageT,
-        group: GroupT
+        group: GroupT,
+        ispath: bool = False
     ) -> None:
         artifact_str = os.fspath(artifact)
         if artifact_str == '':
@@ -212,14 +213,21 @@ class ParserBase(ABC):
         invalid_keyword(lineage, self.lineages)
         invalid_keyword(group, self.groups)
 
-        # Normalize: expand env/~ and convert to absolute path
-        p = Path(
-            os.path.expandvars(os.path.expanduser(artifact_str))).resolve()
-
-        self._filepath: str = str(p.parent)  # absolute dir
-        self._filename: str = p.name         # e.g., '...bug.data' or '...bug'
-        self._name: str = p.stem             # filename without last suffix
-        self._ext: str = p.suffix            # e.g., '.data' or '' if none
+        self._ispath = ispath
+        if ispath:
+            # Normalize: expand env/~ and convert to absolute path
+            p = Path(
+                os.path.expandvars(os.path.expanduser(artifact_str))
+            ).resolve()
+            self._filepath: str = str(p.parent)
+            self._filename: str = p.name
+            self._name: str = p.stem
+            self._ext: str = p.suffix
+        else:
+            self._filepath = 'N/A'
+            self._filename = artifact_str
+            self._name = artifact_str
+            self._ext = 'N/A'
 
         self._project_name = self.__class__.__name__
         self._lineage: LineageT = lineage
@@ -271,33 +279,7 @@ class ParserBase(ABC):
         Sets `filepath` and `ext` to empty strings and keeps the token as both
         `filename` and `name` before `_find_name()` normalization.
         """
-        if not name:
-            raise ValueError("'name' cannot be an empty string.")
-
-        # Bypass __init__; we populate fields manually
-        self = cls.__new__(cls)  # type: ignore[misc]
-
-        # Minimal identity (class attributes must be available)
-        self._project_name = cls.__name__
-        invalid_keyword(lineage, self.lineages)
-        invalid_keyword(group, self.groups)
-        self._lineage = lineage
-        self._group = group
-
-        # Token semantics (no filesystem)
-        self._filepath = ""
-        self._filename = name
-        self._name = name
-        self._ext = ""
-
-        # Continue same setup pipeline
-        self._find_name()
-        self._lineage_genealogy = self._genealogy[lineage]
-        self._lineage_attributes = \
-            list(self.genealogy_attributes[lineage].keys())
-        self._physical_attributes = self.project_attributes[lineage]
-        self._attributes = self._lineage_attributes + self._physical_attributes
-        return self
+        return cls(name, lineage, group, ispath=False)
 
     @property
     def lineages(self) -> list[LineageT]:
@@ -378,6 +360,13 @@ class ParserBase(ABC):
         Return the full filepath or 'N/A' if not a valid path.
         """
         return self._filepath
+
+    @property
+    def ispath(self) -> bool:
+        """
+        Return whether the artifact was parsed as a filesystem path.
+        """
+        return self._ispath
 
     @property
     def group(self) -> GroupT:
@@ -657,9 +646,10 @@ class TwoMonDepCub(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT
+        group: GroupT,
+        ispath: bool = False
     ) -> None:
-        super().__init__(artifact, lineage, group)
+        super().__init__(artifact, lineage, group, ispath=ispath)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
@@ -885,9 +875,10 @@ class SumRuleCyl(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT
+        group: GroupT,
+        ispath: bool = False
     ) -> None:
-        super().__init__(artifact, lineage, group)
+        super().__init__(artifact, lineage, group, ispath=ispath)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
@@ -1143,9 +1134,10 @@ class SumRuleCubHeteroRing(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT
+        group: GroupT,
+        ispath: bool = False
     ) -> None:
-        super().__init__(artifact, lineage, group)
+        super().__init__(artifact, lineage, group, ispath=ispath)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
@@ -1415,9 +1407,10 @@ class SumRuleCubHeteroLinear(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT
+        group: GroupT,
+        ispath: bool = False
     ) -> None:
-        super().__init__(artifact, lineage, group)
+        super().__init__(artifact, lineage, group, ispath=ispath)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
@@ -1712,9 +1705,10 @@ class TransFociCyl(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT
+        group: GroupT,
+        ispath: bool = False
     ) -> None:
-        super().__init__(artifact, lineage, group)
+        super().__init__(artifact, lineage, group, ispath=ispath)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
@@ -1999,9 +1993,10 @@ class TransFociCub(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT
+        group: GroupT,
+        ispath: bool = False
     ) -> None:
-        super().__init__(artifact, lineage, group)
+        super().__init__(artifact, lineage, group, ispath=ispath)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
@@ -2263,9 +2258,10 @@ class HnsCub(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT
+        group: GroupT,
+        ispath: bool = False
     ) -> None:
-        super().__init__(artifact, lineage, group)
+        super().__init__(artifact, lineage, group, ispath=ispath)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
@@ -2537,9 +2533,10 @@ class HnsCyl(ParserBase):
         self,
         artifact: str,
         lineage: LineageT,
-        group: GroupT
+        group: GroupT,
+        ispath: bool = False
     ) -> None:
-        super().__init__(artifact, lineage, group)
+        super().__init__(artifact, lineage, group, ispath=ispath)
         self._initiate_attributes()
         self._parse_name()
         self._set_parents()
