@@ -86,12 +86,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .[dev]
 
-      - name: Run non-parser tests with coverage
+      - name: Run tests with coverage
         run: |
           pytest polyphys \
-            --ignore=polyphys/tests/manage/test_parser.py \
-            --ignore=polyphys/manage/parser.py \
-            --ignore=polyphys/manage/organizer.py \
             --cov=polyphys \
             --cov-report=term-missing \
             --cov-report=xml \

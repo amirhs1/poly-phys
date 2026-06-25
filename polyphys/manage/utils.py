@@ -224,19 +224,25 @@ def sort_filenames(
 
     Examples
     --------
+    >>> from pathlib import Path
     >>> result = sort_filenames(
     ...     ['file1.data', 'file2.trj', 'file1.trj', 'file2.data'],
     ...     ['data', ('lammpstrj', 'trj')]
     ... )
     >>> result == [
-    ...     (PosixPath('file1.data'), PosixPath('file1.trj')),
-    ...     (PosixPath('file2.data'), PosixPath('file2.trj')),
+    ...     (Path('file1.data'), Path('file1.trj')),
+    ...     (Path('file2.data'), Path('file2.trj')),
     ... ]
     True
 
-    >>> sort_filenames(['file1.data', 'file1.trj', 'file2.data'],
-    ... ['data', ('lammpstrj', 'trj')])
-    [(PosixPath('file1.data'), PosixPath('file1.trj'))]
+    >>> [
+    ...     tuple(str(path) for path in group)
+    ...     for group in sort_filenames(
+    ...         ['file1.data', 'file1.trj', 'file2.data'],
+    ...         ['data', ('lammpstrj', 'trj')]
+    ...     )
+    ... ]
+    [('file1.data', 'file1.trj')]
 
     >>> sort_filenames(['file1.data', 'file2.data'], ['data', ('trj',)])
     []

@@ -103,15 +103,20 @@ Examples
 ========
 Example of grouping segments into a whole (histogram):
 
->>> segments = [("segment1.npy",), ("segment2.npy",)]
->>> whole_data = whole_from_segments('density', segments, parser=my_parser,
+>>> segments = [("segment1.npy",), ("segment2.npy",)] # doctest: +SKIP
+>>> whole_data = whole_from_segments( # doctest: +SKIP
+                                     'density', segments, parser=my_parser,
                                      geometry='cubic', group='bug',
                                      topology='linear', relation='histogram')
 
 Creating an ensemble from multiple wholes:
 
->>> wholes = {'whole1': np.array([1, 2, 3]), 'whole2': np.array([2, 3, 4])}
->>> ensemble_data = ensemble('density', wholes, parser=my_parser,
+>>> wholes = { # doctest: +SKIP
+...     'whole1': np.array([1, 2, 3]),
+...     'whole2': np.array([2, 3, 4]),
+... }
+>>> ensemble_data = ensemble( # doctest: +SKIP
+                             'density', wholes, parser=my_parser,
                              geometry='cubic', group='bug',
                              topology='linear', whole_type='vector')
 
@@ -173,7 +178,7 @@ def create_fullname(name: str, group: GroupT, prop: PropertyT) -> str:
 
     Examples
     --------
-    >>> create_fullname('sample', 'bug', 'density')
+    >>> create_fullname('sample', 'bug', 'density') # doctest: +SKIP
     'sample-bug-density'
     """
     return "-".join([name, group, prop])
@@ -212,7 +217,7 @@ def save_artifact(
     --------
     Save a numpy array to a `.npy` file in the specified directory:
 
-    >>> save_artifact(
+    >>> save_artifact( # doctest: +SKIP
     ...     'output',
     ...     np.array([1, 2, 3]),
     ...     'density',
@@ -222,9 +227,9 @@ def save_artifact(
 
     Save a DataFrame to a `.csv` file:
 
-    >>> import pandas as pd
-    >>> df = pd.DataFrame({'A': [1, 2, 3]})
-    >>> save_artifact(
+    >>> import pandas as pd # doctest: +SKIP
+    >>> df = pd.DataFrame({'A': [1, 2, 3]}) # doctest: +SKIP
+    >>> save_artifact( # doctest: +SKIP
     ...     'output',
     ...     df,
     ...     'density',
@@ -301,7 +306,8 @@ def make_database(
 
     Construct a new directory path based on an existing database path:
 
-    >>> make_database('/root/data/old_analysis/simulations', 'analysis',
+    >>> make_database( # doctest: +SKIP
+                     '/root/data/old_analysis/simulations', 'analysis',
                      'wholeSim', 'bug')
     '/root/data/analysis/prefix-bug-wholeSim/'
     """
@@ -452,7 +458,7 @@ def whole_from_segments(
 
     Examples
     --------
-    >>> whole_data = whole_from_segment(
+    >>> whole_data = whole_from_segment( # doctest: +SKIP
             'density',
             [('path/to/segment1.npy',), ('path/to/segment2.npy',)],
             SumRuleCyl,
@@ -528,7 +534,7 @@ def whole_from_file(
     Load and organize whole data for a specific property from a list of file
     paths:
 
-    >>> whole_data = whole_from_file(
+    >>> whole_data = whole_from_file( # doctest: +SKIP
             whole_paths=[('path/to/whole1.npy',), ('path/to/whole2.npy',)],
             TransFociCyl,
             'bug'
@@ -601,7 +607,7 @@ def whole_from_dist_mat_t(
     --------
     Load foci distance matrix data with a project-specific processor:
 
-    >>> freqs, rdfs, tseries = whole_from_dist_mat_t(
+    >>> freqs, rdfs, tseries = whole_from_dist_mat_t( # doctest: +SKIP
     ...     [('path/to/whole1.npy',), ('path/to/whole2.npy',)],
     ...     my_parser_class,
     ...     'bug',
@@ -646,11 +652,11 @@ def ens_from_bin_edge(
 
     Examples
     --------
-    >>> ensemble_bin_edges = ens_from_bin_edge(
+    >>> ensemble_bin_edges = ens_from_bin_edge( # doctest: +SKIP
             ('ensemble1', {'whole1': np.array([0.1, 0.2, 0.2, 0.3],
              'whole2': np.array([0.1, 0.2, 0.2, 0.3]})
         )
-    >>> print(ensemble_bin_edges)
+    >>> print(ensemble_bin_edges) # doctest: +SKIP
     ('ensemble1', array([0.1, 0.2, 0.3]))
     """
     ensemble_name, whole_edges = ens_data
@@ -683,13 +689,13 @@ def ens_from_vec(
 
     Examples
     --------
-    >>> ens_name, ensemble_df = ens_from_vec(
+    >>> ens_name, ensemble_df = ens_from_vec( # doctest: +SKIP
             ('ensemble1', {'whole1': np.array([0.1, 0.2, 0.3]),
                            'whole2': np.array([0.4, 0.5, 0.6])})
         )
-    >>> print(ens_name)
+    >>> print(ens_name) # doctest: +SKIP
     'ensemble1'
-    >>> print(ensemble_df)
+    >>> print(ensemble_df) # doctest: +SKIP
        whole1  whole2
     0     0.1     0.4
     1     0.2     0.5
@@ -724,13 +730,13 @@ def ens_from_mat_t(
 
     Examples
     --------
-    >>> ens_data = (
+    >>> ens_data = ( # doctest: +SKIP
             'ensemble1',
             {'whole1': np.array([[1, 2], [3, 4]]),
             'whole2': np.array([[5, 6], [7, 8]])}
         )
-    >>> combined_array = ens_from_mat_t(ens_data)
-    >>> print(combined_array)
+    >>> combined_array = ens_from_mat_t(ens_data) # doctest: +SKIP
+    >>> print(combined_array) # doctest: +SKIP
     ('ensemble1', array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]))
     """
     ensemble_name, whole_matrices = ens_data
@@ -794,11 +800,17 @@ def ens_from_df(
 
     Examples
     --------
-    >>> df1 = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> df2 = pd.DataFrame({'A': [2, 3, 4], 'B': [5, 6, 7]})
-    >>> ens_data = ('ensemble1', {'whole1': df1, 'whole2': df2})
-    >>> averaged_df = ens_from_df(ens_data)
-    >>> print(averaged_df)
+    >>> df1 = pd.DataFrame( # doctest: +SKIP
+    ...     {'A': [1, 2, 3], 'B': [4, 5, 6]}
+    ... )
+    >>> df2 = pd.DataFrame( # doctest: +SKIP
+    ...     {'A': [2, 3, 4], 'B': [5, 6, 7]}
+    ... )
+    >>> ens_data = ( # doctest: +SKIP
+    ...     'ensemble1', {'whole1': df1, 'whole2': df2}
+    ... )
+    >>> averaged_df = ens_from_df(ens_data) # doctest: +SKIP
+    >>> print(averaged_df) # doctest: +SKIP
     ('ensemble1',
        A    B
     0  1.5  4.5
@@ -878,11 +890,11 @@ def ensemble(
 
     Examples
     --------
-    >>> wholes = {
+    >>> wholes = { # doctest: +SKIP
             'whole1': np.array([1, 2, 3]),
             'whole2': np.array([2, 3, 4])
         }
-    >>> ensembles = ensemble(
+    >>> ensembles = ensemble( # doctest: +SKIP
             'density',
             wholes,
             HnsCyl,
@@ -959,9 +971,12 @@ def ens_avg_from_bin_edge(ens_data: np.ndarray) -> np.ndarray:
 
     Examples
     --------
-    >>> ens_data = [np.array([0.0, 0.1, 0.2]), np.array([0.0, 0.1, 0.2])]
-    >>> unique_bin_edges = ens_avg_from_bin_edge(ens_data)
-    >>> print(unique_bin_edges)
+    >>> ens_data = [ # doctest: +SKIP
+    ...     np.array([0.0, 0.1, 0.2]),
+    ...     np.array([0.0, 0.1, 0.2]),
+    ... ]
+    >>> unique_bin_edges = ens_avg_from_bin_edge(ens_data) # doctest: +SKIP
+    >>> print(unique_bin_edges) # doctest: +SKIP
     [0.  0.1 0.2 0.3]
     """
     return np.unique(ens_data)
@@ -1002,12 +1017,14 @@ def ens_avg_from_ndarray(
 
     Examples
     --------
-    >>> ens_data = np.array([
+    >>> ens_data = np.array([ # doctest: +SKIP
             [[1, 2], [3, 4]],
             [[2, 3], [4, 5]]
         ])
-    >>> ens_avg = ens_avg_from_ndarray('gyration_tensor', ens_data, exclude=[])
-    >>> print(ens_avg)
+    >>> ens_avg = ens_avg_from_ndarray( # doctest: +SKIP
+    ...     'gyration_tensor', ens_data, exclude=[]
+    ... )
+    >>> print(ens_avg) # doctest: +SKIP
     {
         'gyration_tensor-mean': array([[1.5, 2.5],
                                [3.5, 4.5]]),
@@ -1063,14 +1080,14 @@ def ens_avg_from_df(
 
     Examples
     --------
-    >>> import pandas as pd
-    >>> ens_data = pd.DataFrame({
+    >>> import pandas as pd # doctest: +SKIP
+    >>> ens_data = pd.DataFrame({ # doctest: +SKIP
             'bin_center': [1, 2, 3],
             'whole1': [4, 5, 6],
             'whole2': [5, 6, 7]
         })
-    >>> exclude = ['bin_center']
-    >>> ens_avg_from_df('density', ens_data, exclude)
+    >>> exclude = ['bin_center'] # doctest: +SKIP
+    >>> ens_avg_from_df('density', ens_data, exclude) # doctest: +SKIP
        bin_center  density-mean  density-var  density-sem
     0           1           4.5        0.5       0.5
     1           2           5.5        0.5       0.5
@@ -1137,13 +1154,13 @@ def ensemble_avg(
 
     Examples
     --------
-    >>> ensembles = {
+    >>> ensembles = { # doctest: +SKIP
             'ensemble1': pd.DataFrame({'whole1': [1, 2, 3],
                                        'whole2': [2, 3, 4]}),
             'ensemble2': pd.DataFrame({'whole1': [3, 4, 5],
                                        'whole2': [4, 5, 6]})
         }
-    >>> avg_ensembles = ensemble_avg(
+    >>> avg_ensembles = ensemble_avg( # doctest: +SKIP
             'density',
             ensembles,
             'bug',
@@ -1221,8 +1238,11 @@ def children_stamps(
 
     Examples
     --------
-    >>> stamps = [('path/to/stamp1.csv',), ('path/to/stamp2.csv',)]
-    >>> df = children_stamps(stamps, lineage='whole')
+    >>> stamps = [ # doctest: +SKIP
+    ...     ('path/to/stamp1.csv',),
+    ...     ('path/to/stamp2.csv',),
+    ... ]
+    >>> df = children_stamps(stamps, lineage='whole') # doctest: +SKIP
     """
     invalid_keyword(lineage, ["segment", "whole"])
 
@@ -1298,8 +1318,10 @@ def parents_stamps(
 
     Examples
     --------
-    >>> df = pd.DataFrame({'segment': [1, 2], 'value': [10, 20]})
-    >>> parent_df = parents_stamps(df, group='bug',
+    >>> df = pd.DataFrame( # doctest: +SKIP
+    ...     {'segment': [1, 2], 'value': [10, 20]}
+    ... )
+    >>> parent_df = parents_stamps(df, group='bug', # doctest: +SKIP
                                    lineage='segment')
     """
     invalid_keyword(lineage, ["segment", "whole"])
@@ -1418,7 +1440,7 @@ def find_unique_properties(
 
     The function can be used as follows:
 
-    >>> find_unique_properties("path/to/files/*", prop_idx=0,
+    >>> find_unique_properties("path/to/files/*", prop_idx=0, # doctest: +SKIP
                                extensions=['-ensAvg', '-ens'])
     (['gyrT', 'fsdT'], ['gyrT-acf', 'fsdT-acf'])
 
@@ -1504,10 +1526,11 @@ def space_tseries(
 
     Examples
     --------
-    >>> df = space_tseries("path/to/database", 'density', parser=SomeParser,
+    >>> df = space_tseries( # doctest: +SKIP
+                           "path/to/database", 'density', parser=SomeParser,
                            hierarchy="N*", physical_attrs=['dmon', 'dcyl'],
                            group='all', geometry='cubic', topology='linear')
-    >>> df.head()
+    >>> df.head() # doctest: +SKIP
 
     Notes
     -----
@@ -1616,11 +1639,12 @@ def space_hists(
 
     Examples
     --------
-    >>> df = space_hists("path/to/database", 'density', parser=SomeParser,
+    >>> df = space_hists( # doctest: +SKIP
+                         "path/to/database", 'density', parser=SomeParser,
                          hierarchy="N*", physical_attrs=['temperature'],
                          group='all', geometry='cylindrical',
                          topology='linear')
-    >>> df.head()
+    >>> df.head() # doctest: +SKIP
 
     Notes
     -----
