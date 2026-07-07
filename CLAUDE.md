@@ -1,198 +1,197 @@
 # CLAUDE.md — PolyPhys
 
-This is the repository-level operating guide for Claude Code. Keep it concise and mirror
-`AGENTS.md` as closely as possible. If the two files diverge, follow the stricter
+Repository-level operating guide for Claude Code. It applies throughout the repository unless a
+more specific instruction file applies. Keep it concise and mirror `AGENTS.md` except for
+agent-specific wording and the commit trailer. If the guides diverge, follow the stricter
 approval or safety rule.
 
-**Living document — last structural review: 2026-07-07.** Amir is actively restructuring
-PolyPhys over the next few weeks: folders, module boundaries, and the packaging approach
-are all expected to change. Treat the "Project" and "Packaging" sections below as a
-snapshot, not gospel:
+**Living document — last structural review: 2026-07-07.** PolyPhys is being actively
+restructured; folder layout, module boundaries, and packaging details may change.
 
-- Before relying on a specific path, module name, or command stated here, check it
-against the live repo (`ls`, `grep`, `pyproject.toml`). If they've diverged, the repo
-is right and this file is wrong — fix the file, don't silently work around the staleness.
-- If your task changes anything this file states as fact (folder layout, package name,
-build backend, test command, dependency groups, branch model, lineage vocabulary),
-update the relevant section of CLAUDE.md in the same PR and say so in the PR body.
-- Bump the date above whenever you edit this file for a structural reason.
+* Verify paths, modules, commands, branches, and packaging facts against the live repository
+  (`ls`, `grep`, `pyproject.toml`, and relevant workflow files) before relying on this guide.
+* When the repository contradicts this guide, the repository is authoritative. Update both
+  guides in the same change instead of silently working around stale text.
+* Bump the review date when a structural fact in either guide changes.
 
-## Project
+## Project invariants
 
-PolyPhys is a Python package for managing and analyzing polymer-physics/molecular-dynamics
-simulation data, focused on computational models of bacterial chromosome organization
-(`amirhs1/poly-phys`, MIT license, solo-maintained by Amir Sadeghi).
+PolyPhys is a solo-maintained, MIT-licensed Python package for polymer-physics and
+molecular-dynamics simulation-data management and analysis, focused on bacterial chromosome
+organization (`amirhs1/poly-phys`).
 
-- The package structure is evolving. Inspect the current repository before relying on module,
-  submodule, or file names; do not maintain a complete module inventory in this file.
-- Preserve the settled simulation-artifact lineage:
-  `segment → whole → ensemble_long → ensemble → space`.
-- Preserve the settled directory phase/stage vocabulary:
+* Inspect the repository instead of maintaining a full module inventory here.
+* Preserve the artifact lineage: `segment → whole → ensemble_long → ensemble → space`.
+* Preserve the phase/stage vocabulary:
   `simsAll, simsCont, logs, trjs, probes, analysis, viz, galaxy, allInOne` ×
   `segment, wholeSim, ens, ensAvg, space, galaxy`.
-- Never rename, flatten, or simplify those conventions without being explicitly asked.
-  Any filename-parsing change requires matching parser tests in the same change.
-- Versioning: semantic versioning; the version string lives only in `polyphys/__version__.py`
-  (`pyproject.toml` declares `dynamic = ["version"]` and reads it via `attr =`). Don't
-  hand-edit the version unless asked to cut a release.
-- No PyPI release yet — distribution is GitHub source plus a Zenodo DOI. Don't add a
-  PyPI-publish workflow, trusted-publishing config, or version-bump automation unless
-  explicitly asked.
+* Never rename, flatten, or simplify those conventions unless Amir explicitly asks.
+  Filename-parsing changes require matching parser tests in the same change.
+* Versioning is semantic. The version lives only in `polyphys/__version__.py`;
+  `pyproject.toml` reads it dynamically through `attr`. Change it only for a requested release.
+* There is no PyPI release. Distribution is GitHub source plus a Zenodo DOI. Do not add PyPI
+  publishing, trusted publishing, or version-bump automation unless asked.
 
-## Branching & delivery
+## Local Conda environment and dependencies
 
-- The only long-lived branch is `main` — there is currently no `develop` branch. (If this
-  changes, update this file.)
-- Never commit or push directly to `main`.
-- Every short-lived branch must use one of these prefixes, which determines its PR label:
-  `feature/*` → `enhancement`; `fix/*` or `hotfix/*` → `bug`; `refactor/*` or
-  `chore/*` → `chore`; `deps/*` → `dependencies`; `docs/*` → `documentation`;
-  `help/*` → `help wanted`; `question/*` → `question`; `release/*` → `release`.
-  You may branch from `main` without asking, but never commit directly to `main`.
-- When work is ready, stop before staging or delivery and follow the approval checkpoints
-  below. Never infer approval from the original task or from approval at an earlier step.
-- **Before staging:** show `git status --short` and the unstaged diff (`git diff`), summarize
-  the changed files, and ask Amir to review and explicitly approve staging. Stage only the
-  approved files or hunks.
-- **Before committing:** show the staged diff (`git diff --cached`) and the proposed commit
-  message, then ask for explicit approval to commit.
-- **Before pushing or opening a PR:** show the branch/base, proposed PR title and body, and
-  ask for explicit approval to push and create the PR. Do not merge the PR — Amir owns merges.
-- Keep commits scoped to the task; don't bundle unrelated changes.
-- **Commit trailer.** End every commit you author or co-author with this trailer, exactly,
-  as the final block, preceded by a blank line:
+The canonical local development environment is the named Conda environment `polylab_air`.
 
-      Co-authored-by: Claude <noreply@anthropic.com>
+* Refer to it only by name. Never write or rely on an absolute Conda prefix or interpreter
+  path such as `/opt/.../envs/polylab_air/bin/python` in tracked files.
 
-  Verify with `git log -1 --pretty=%B` before pushing; re-verify after any amend.
-- **Titles.** Don't prefix commit messages or PR titles with a tool/agent tag — the
-  identifier lives only in the trailer above.
-- **Labels.** Every PR must have exactly one label, determined by its branch prefix.
-  Use only `bug`, `chore`, `dependencies`, `documentation`, `enhancement`,
-  `help wanted`, `question`, or `release`. Never create or apply another label.
-  If the branch prefix and intended label do not match, stop and ask before opening the PR.
+* Run every Python-dependent project command through:
+
+  ```txt
+  conda run --no-capture-output -n polylab_air -- <command>
+  ```
+
+* Prefer module invocations:
+  `conda run --no-capture-output -n polylab_air -- python -m <module>`.
+
+* Do not run project commands with bare `python`, `pip`, `pytest`, `flake8`, `mypy`, or
+  `sphinx-build`, even if the shell appears activated. Never use bare `pip`.
+
+* Never install into Conda `base`, a system interpreter, another environment, or a
+  user/global site. Never use `sudo` or `pip install --user`.
+
+* Before any environment-changing command, including `pip install`, show the exact command
+  and obtain explicit approval.
+
+* Install only dependencies declared in `pyproject.toml` unless Amir explicitly approves a
+  new dependency and its dependency group.
+
+* Do not create, recreate, update, remove, clone, export, or otherwise administer the Conda
+  environment unless Amir asks and approves the exact command.
+
+* If `conda` or `polylab_air` is unavailable, stop and report it; never fall back silently.
+
+* Non-Python commands such as `git`, `gh`, `ls`, and `grep` do not need Conda.
+
+## Branching and delivery
+
+* The only long-lived branch is `main`; there is no `develop` branch. Never commit or push
+  directly to `main`.
+
+* Branch prefix → single required PR label:
+  `feature/*` → `enhancement`; `fix/*` or `hotfix/*` → `bug`;
+  `refactor/*` or `chore/*` → `chore`; `deps/*` → `dependencies`;
+  `docs/*` → `documentation`; `help/*` → `help wanted`;
+  `question/*` → `question`; `release/*` → `release`.
+
+* You may branch from `main` without asking. Keep branches and commits scoped to the task.
+
+* Never infer delivery approval from the original task or an earlier checkpoint.
+
+* Before staging: show `git status --short` and `git diff`, summarize changes, and request
+  explicit approval. Stage only approved files or hunks.
+
+* Before committing: show `git diff --cached` and the proposed message, then request
+  explicit approval.
+
+* Before pushing or opening a PR: show branch/base and the proposed PR title/body, then
+  request explicit approval. Do not merge; Amir owns merges.
+
+* Do not prefix commit or PR titles with an agent/tool tag.
+
+* End every commit you author or co-author with this exact final block after a blank line:
+
+  ```txt
+  Co-authored-by: Claude <noreply@anthropic.com>
+  ```
+
+* Verify the trailer with `git log -1 --pretty=%B` before pushing and after any amend.
+
+* If branch prefix and intended label disagree, stop and ask. Never create or apply labels
+  outside the approved list.
 
 ## Packaging
 
-- Build backend: setuptools (`pyproject.toml`, `[build-system]`). Package discovery includes
-  `polyphys*`, excludes `notebooks*`, `projects*`, `under_review*`.
-- Optional dependency groups: `docs` (Sphinx + pydata theme + myst-parser), `dev` (pytest,
-  pytest-cov, flake8, mypy, pandas-stubs, build), `notebooks` (ipykernel/ipython/jupyter).
-  Install only what the task needs, e.g. `pip install -e .[dev]`.
-- `polyphys.test_data` ships as package data (`tool.setuptools.package-data`) — new test
-  fixtures should land under that path, or update the glob.
-- CLI entry point: `polyphys = "polyphys.cli:main"`.
-- Before touching `pyproject.toml` or the package layout, verify the package still builds:
-  `python -m build` (from the `dev` extra) — sdist and wheel should succeed.
+* Build backend: setuptools in `pyproject.toml`.
+* Discovery includes `polyphys*`; it excludes `notebooks*`, `projects*`, and `under_review*`.
+* Optional groups: `docs`, `dev`, and `notebooks`. Install only what the task needs:
+  `conda run --no-capture-output -n polylab_air -- python -m pip install -e '.[dev]'`.
+* `polyphys.test_data` ships as package data. Put fixtures there or deliberately update the
+  package-data glob.
+* CLI entry point: `polyphys = "polyphys.cli:main"`.
+* After changing `pyproject.toml` or package layout, propose:
+  `conda run --no-capture-output -n polylab_air -- python -m build`.
 
-## Testing — ask before running
+## Validation — ask before running
 
-Before running any test, doctest, lint, type-check, coverage, build, docs-build,
-benchmark, or other validation command, list the exact proposed commands and ask Amir:
+Before any test, doctest, lint, type-check, coverage, build, docs build, benchmark, or other
+validation command, list the exact proposed commands and ask:
 
 > Would you like to run these checks yourself, or should I run them?
 
-Do not run validation until he answers. His choice applies to the current task only unless
-he explicitly says otherwise. If he runs the checks, ask for or record the results; do not
-claim they passed without evidence.
+Do not run validation until Amir answers. The choice applies only to the current task unless
+he says otherwise. If Amir runs checks, record his results; never claim success without
+evidence.
 
-CI (`.github/workflows/ci.yaml`) runs on pushes to `main`, pull requests targeting `main`,
-and manual dispatch. Relevant local commands that mirror CI are:
+CI (`.github/workflows/ci.yaml`) runs on pushes to `main`, PRs targeting `main`, and manual
+dispatch. Commands mirroring CI are:
 
-    ```bash
-    python -m pip install -e .[dev]
+```bash
+# Installation changes the environment and requires separate approval.
+conda run --no-capture-output -n polylab_air -- python -m pip install -e '.[dev]'
 
-    # Lint
-    flake8 polyphys
+conda run --no-capture-output -n polylab_air -- python -m flake8 polyphys
 
-    # Type-check
-    mypy polyphys/analyze polyphys/manage
+conda run --no-capture-output -n polylab_air -- \
+  python -m mypy polyphys/analyze polyphys/manage
 
-    # Tests + coverage + doctest-modules + README doctest
-    pytest polyphys \
-    --cov=polyphys \
-    --cov-report=term-missing \
-    --cov-report=xml \
-    --doctest-modules \
-    --doctest-glob="README.md"
+conda run --no-capture-output -n polylab_air -- \
+  python -m pytest polyphys --cov=polyphys --cov-report=term-missing \
+  --cov-report=xml --doctest-modules --doctest-glob='README.md'
 
-    # Build sdist and wheel
-    python -m build
-    ```
+conda run --no-capture-output -n polylab_air -- python -m build
+```
 
-- `[tool.pytest.ini_options]` already sets `addopts = "--doctest-modules
-  --doctest-glob=README.md"` and `testpaths = ["polyphys/tests"]`, so a bare `pytest` from
-  the repo root also works. Use the explicit command above when reproducing the CI test job.
-- `--doctest-modules` means **docstring examples are executable tests**. If you add or edit
-  a docstring `Examples` block, include the relevant doctests in the proposed validation.
-- Codecov upload needs `CODECOV_TOKEN`, which only exists in CI. Do not try to reproduce the
-  upload locally; the terminal and XML coverage reports are enough.
-- If the change touches `docs/source/`, propose:
-  `pip install -e .[docs] && sphinx-build -b html docs/source docs/_build` (autodoc mocks
-  `MDAnalysis`, `pyarrow`, `statsmodels`, so those being "missing" at build time is expected).
-- **CI is the gate.** It runs the test matrix on Python 3.11–3.13. For docs/config-only
-  changes, propose only the narrow relevant local checks and let CI run the full matrix
-  unless Amir asks for broader local validation.
+* Pytest configuration already sets doctest options and `testpaths = ["polyphys/tests"]`.
+  A minimal invocation is
+  `conda run --no-capture-output -n polylab_air -- python -m pytest`.
+* Docstring `Examples` blocks are executable tests; include relevant doctests when they change.
+* Codecov upload needs `CODECOV_TOKEN`, available only in CI. Do not reproduce the upload
+  locally; terminal and XML reports are sufficient.
+* For `docs/source/` changes, propose the separately approved install
+  `python -m pip install -e '.[docs]'` and then
+  `python -m sphinx -b html docs/source docs/_build`, both through the required `conda run`
+  prefix. Missing `MDAnalysis`, `pyarrow`, and `statsmodels` is expected because docs mock them.
+* CI is the gate and runs Python 3.11–3.13. For docs/config-only changes, propose narrow
+  local checks and let CI run the matrix unless Amir asks otherwise.
 
-## Domain correctness (don't skip this)
+## Scientific and performance correctness
 
-This package computes physical quantities (densities, volume fractions, persistence length,
-etc. — see `polyphys.analyze.measurer`) from MD trajectories. Correctness here is *scientific*
-correctness, not just type/lint correctness:
+* Measurement/statistics changes must preserve physical units and numerical fixtures. If
+  expected values change, explain the scientific reason and source in the PR.
+* For correlated MD frames, use block averaging or another autocorrelation-aware uncertainty
+  estimate, not naive per-frame standard errors.
+* Prefer vectorized NumPy, pandas, and MDAnalysis operations over explicit Python loops.
+* State time and space complexity for every new or materially changed core routine,
+  especially code scaling with frames or particles.
+* For a physical model, statistical method, algorithm, or nontrivial formula, cite a
+  verifiable paper, textbook, standard reference, or official library documentation in the
+  docstring, documentation, or PR body as appropriate.
 
-- Any change to a measurement/statistics function must preserve physical units and existing
-  numerical test fixtures in `polyphys/tests/`. If expected values must change, explain why
-  in the PR body (e.g., "previous formula omitted a factor of 2π — see [source]").
-- New analysis or statistics code operating on ensembles of correlated MD frames should use
-  block-averaging or another autocorrelation-aware error estimate, not naive per-frame
-  standard error — flag this explicitly in the PR body if you implement or change error bars.
-- Prefer vectorized NumPy/pandas/MDAnalysis operations over explicit per-frame Python loops;
-  trajectories here can have millions of frames/particles, so note the time/space complexity
-  (Big-O) of any new core routine in its docstring or the PR body, especially anything
-  iterating over particles or frames.
-- If you invoke a physical model or statistical method by name (e.g., Flory scaling, Rouse
-  model, block averaging), name the source (paper or textbook) in the docstring or PR body —
-  don't state it as if self-evident.
+## Security and audit mode
 
-## Security
+* `SECURITY.md` requires private disclosure with a 90-day window. Do not open a public issue
+  or PR for a suspected vulnerability; stop and alert Amir privately.
+* Audits are read-only by default. Do not modify, delete, publish, release, or clean unless
+  separately asked.
+* Install audit-only tools (`pip-audit`, `bandit`, `pip-licenses`) only in a disposable
+  `.audit-venv`, never in `polylab_air` or `pyproject.toml`.
+* Retry a failed audit command once only for an obvious correction; then record the error.
+* Audit weights: installation/packaging 20, code quality/architecture 20, testing/CI 20,
+  documentation 15, security/dependency hygiene 15, maintenance/governance 10.
+* Separate verified, likely-but-untested, and unassessed findings. Never invent metrics.
+* Before proposing features or audit recommendations, run `gh issue list --state all` and
+  reference existing issues rather than duplicating them.
 
-`SECURITY.md` exists: this is a solo-maintained project with a private-disclosure-only
-policy and a 90-day window. Don't file or suggest filing security issues publicly; if you
-find something that looks like a real vulnerability, stop and flag it to Amir directly
-instead of opening a public issue or PR about it.
+## Completion
 
-## Repository audit mode
-
-If asked to audit or review the repository's health (not just fix a specific task), switch
-to evidence-based audit mode:
-
-- Work read-only by default. Don't modify, delete, or publish anything; don't run
-  release/publish/clean commands.
-- If installing audit-only tools (`pip-audit`, `bandit`, `pip-licenses`), do it inside a
-  disposable venv (`python -m venv .audit-venv`) — never add them to `pyproject.toml`.
-- If a command fails, retry at most once for an obvious fix; on a second failure, record the
-  exact error and move on rather than looping.
-- Score across: installation/packaging (20), code quality/architecture (20), testing & CI
-  (20), documentation (15), security & dependency hygiene (15), maintenance/governance (10).
-  For each finding, separate what you verified directly from what you assumed.
-- Don't guess external metrics (PyPI downloads, GitHub stars, OpenSSF Scorecard) — only
-  report them if a successful API/CLI call actually returned them; otherwise mark "could not
-  be verified" rather than scoring it down.
-- Output a single Markdown report; don't open a PR for an audit unless also asked to fix
-  something.
-
-## Final response
-
-- If the task changed anything this file documents as fact (paths, module names, the
-  lineage/phase vocabulary, build backend, test commands, branch model), update CLAUDE.md
-  in the same PR and bump the "last structural review" date at the top — don't let it go
-  stale silently.
-- Before proposing new features or audit-style recommendations, check
-  `gh issue list --state all` first — don't re-propose something already filed; reference
-  the issue number instead.
-- Summarize changed files, why each change was made, and which checks were run (and which
-  were skipped, and why).
-- If the task scope is complete, present the current diff for Amir's review and stop before
-  staging unless the relevant approval checkpoint has already been completed. Proceed through
-  staging, commit, push, and PR creation only with the separate approvals above. Never merge
-  the PR, and never push to `main` directly.
+* If a task changes a documented fact, update both guides in the same change and bump the
+  structural-review date when appropriate.
+* In the final response, summarize changed files, why each changed, checks run, checks
+  skipped, and why.
+* When implementation is complete, present the diff and stop before staging unless that
+  checkpoint has explicit approval.
