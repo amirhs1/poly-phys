@@ -6,5 +6,6 @@ filenames, and then organizes them into a hierarchy of directories.
 from polyphys.manage import parser
 from polyphys.manage import utils
 from polyphys.manage import types
+from polyphys.manage import organizer
 
-__all__ = ["parser", "utils", "types"]
+__all__ = ["parser", "utils", "types", "organizer"]
