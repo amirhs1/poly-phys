@@ -592,7 +592,7 @@ def whole_from_dist_mat_t(
     -------
     tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame],
           dict[str, pd.DataFrame]]
-        hree dictionaries with whole names as keys and DataFrames as values:
+        Three dictionaries with whole names as keys and DataFrames as values:
 
         - Frequency/histogram DataFrames
         - Radial distribution function (RDF) DataFrames

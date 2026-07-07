@@ -21,9 +21,7 @@ Submodules
 - `measurer`: Tools for geometric and structural measurements.
 """
 
-from polyphys.analyze import (
-    measurer,
-)
+from polyphys.analyze import measurer
 
 __all__ = [
     'measurer'

@@ -643,7 +643,7 @@ def fixedsize_bins(
     save_bin_edges: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Generate bin edges and an empty collectors with consisent bin width.
+    Generate bin edges and an empty collectors with consistent bin width.
 
     Parameters
     ----------
